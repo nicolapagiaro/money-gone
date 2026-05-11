@@ -16,6 +16,7 @@ module MoneyGone
       (override with --lmstudio-url and --model).
     LONG
     option :stub, type: :boolean, default: false, desc: "Use stub categorizer (no HTTP)"
+    option :verbose, type: :boolean, aliases: "-v", default: false, desc: "List each movement with category and LM raw label"
     option :model, type: :string, desc: "Override model id from config"
     option :lmstudio_url, type: :string, desc: "Override LM Studio base URL (e.g. http://127.0.0.1:1234/v1)"
     def analyze(*bank_specs)
@@ -39,7 +40,7 @@ module MoneyGone
 
       llm = build_llm(stub: options[:stub], model: option_string(:model), lmstudio_url: option_string(:lmstudio_url))
       result = Pipeline.run(banks, root: Dir.pwd, llm: llm)
-      Reporter.new.render(result)
+      Reporter.new.render(result, verbose: options[:verbose])
     rescue MoneyGone::LlmClient::UnavailableError => e
       warn "LM Studio unavailable: #{e.message}"
       exit 2

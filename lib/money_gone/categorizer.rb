@@ -64,8 +64,13 @@ module MoneyGone
       normalize_label(a) == normalize_label(b)
     end
 
+    # Allinea risposte LM senza accenti (es. "caffe" vs "caffè") a config/categories.yml
     def normalize_label(s)
-      s.to_s.strip.downcase
+      fold_ascii(s).strip.downcase
+    end
+
+    def fold_ascii(str)
+      str.to_s.unicode_normalize(:nfd).gsub(/\p{M}/u, "")
     end
 
     def normalize_suggestion(value)

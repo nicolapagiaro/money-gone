@@ -29,7 +29,7 @@ module MoneyGone
       confidence_threshold = thr.nil? ? 0.45 : thr.to_f
       confidence_threshold = 0.45 if confidence_threshold <= 0.0
 
-      Categorizer.new(
+      rows = Categorizer.new(
         categories: categories,
         llm_client: @llm,
         confidence_threshold: confidence_threshold
@@ -38,7 +38,8 @@ module MoneyGone
       {
         totals: compute_totals(rows),
         transfers: rows.select { |r| r[:excluded_from_spending] },
-        suggestions: compute_suggestions(rows)
+        suggestions: compute_suggestions(rows),
+        rows: rows
       }
     end
 
@@ -78,7 +79,7 @@ module MoneyGone
       def categorize(_tx, allowed_categories: [])
         label =
           allowed_categories.find { |c| c.match?(/supermercato/i) } ||
-          allowed_categories.reject { |c| normalize_label(c) == "altro" }.first ||
+          allowed_categories.reject { |c| c.to_s.strip.downcase == "altro" }.first ||
           "Altro"
         { "category" => label, "confidence" => 0.95, "suggested_new_category" => nil }
       end

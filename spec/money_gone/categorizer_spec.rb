@@ -27,4 +27,18 @@ RSpec.describe MoneyGone::Categorizer do
     ).categorize([tx]).first
     expect(out[:category]).to eq("Supermercato e alimentari")
   end
+
+  it "matches labels when LM drops accents (e.g. caffe vs caffè)" do
+    tx = { description_clean: "bar" }
+    fake_llm = instance_double("llm")
+    allow(fake_llm).to receive(:categorize).and_return(
+      { "category" => "Bar e caffe", "confidence" => 0.88, "suggested_new_category" => nil }
+    )
+    out = described_class.new(
+      categories: ["Bar e caffè", "Altro"],
+      llm_client: fake_llm,
+      confidence_threshold: 0.5
+    ).categorize([tx]).first
+    expect(out[:category]).to eq("Bar e caffè")
+  end
 end
