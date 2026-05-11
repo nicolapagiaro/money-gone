@@ -57,6 +57,29 @@ module MoneyGone
       raise ResponseError, "invalid JSON from model: #{e.message}; raw=#{defined?(text) ? text.to_s[0, 400] : ''}"
     end
 
+    # Testo grezzo (PDF/OCR) → righe canoniche per Normalizer: booking_date, amount_raw, description_raw.
+    def parse_statement_transactions(text)
+      messages = [
+        { role: "system", content: statement_parse_system_prompt },
+        { role: "user", content: statement_parse_user_prompt(text) }
+      ]
+      raw = chat(messages, temperature: 0.12)
+      normalized = extract_json_object(raw)
+      hash = parse_json(normalized)
+      rows = hash["transactions"]
+      unless rows.is_a?(Array)
+        raise ResponseError,
+              "missing or invalid \"transactions\" array in LM response; raw=#{raw.to_s[0, 400]}"
+      end
+
+      rows.each_with_index.map do |row, i|
+        normalize_statement_row!(row, index: i)
+      end
+    rescue JSON::ParserError => e
+      raise ResponseError,
+            "invalid JSON from model (statement parse): #{e.message}; raw=#{raw.to_s[0, 400]}"
+    end
+
     def ping
       get_json("models")
     end
@@ -116,6 +139,54 @@ module MoneyGone
         Movimento da classificare:
         #{user}
       USER
+    end
+
+    def statement_parse_system_prompt
+      <<~PROMPT.strip
+        Sei un assistente che estrae movimenti da estratti conto italiani in formato testo (anche rumoroso per OCR).
+
+        Rispondi SOLO con un unico oggetto JSON valido (nessun markdown, nessun testo fuori dal JSON).
+
+        Schema obbligatorio:
+        {"transactions":[{"booking_date":"YYYY-MM-DD","amount_raw":"...","description_raw":"..."}, ...]}
+
+        Regole:
+        - "booking_date": data contabile del movimento in formato ISO YYYY-MM-DD.
+        - "amount_raw": importo come stringa in stile italiano (virgola decimale, punto migliaia opzionale).
+          Segno: negativo = uscita dal conto, positivo = entrata (come sul PDF/banca).
+        - "description_raw": causale o descrizione leggibile, senza ripetere intestazioni di tabella.
+        - Ignora totali, saldi iniziali/finali, intestazioni, pagine vuote, note legali: solo righe di movimento.
+        - Se non ci sono movimenti: {"transactions":[]}.
+      PROMPT
+    end
+
+    def statement_parse_user_prompt(text)
+      <<~USER.strip
+        Estrai tutti i movimenti dal seguente testo (può contenere marker "--- Pagina N ---"):
+
+        #{text}
+      USER
+    end
+
+    def normalize_statement_row!(row, index:)
+      unless row.is_a?(Hash)
+        raise ResponseError, "transactions[#{index}] must be an object"
+      end
+
+      sym = row.each_with_object({}) do |(k, v), acc|
+        key = k.to_s.downcase.tr(" ", "_").to_sym
+        acc[key] = v
+      end
+
+      date = sym[:booking_date] || sym[:data] || sym[:data_operazione]
+      amount = sym[:amount_raw] || sym[:importo] || sym[:importo_eur]
+      desc = sym[:description_raw] || sym[:descrizione] || sym[:causale]
+
+      {
+        booking_date: date.to_s.strip,
+        amount_raw: amount.to_s.strip,
+        description_raw: desc.to_s.strip
+      }
     end
 
     def stringify_message(m)

@@ -15,7 +15,7 @@ module MoneyGone
     def run(banks, include_category_suggestions: false, parallel_jobs: nil)
       cfg = @loader.load_all
       categories = cfg[:categories]
-      importer = Importer.new
+      importer = Importer.new(llm_client: @llm)
       txs = []
       banks.each do |b|
         path = File.expand_path(b[:path], @root)
@@ -106,6 +106,16 @@ module MoneyGone
           allowed_categories.reject { |c| c.to_s.strip.downcase == "altro" }.first ||
           "Altro"
         { "category" => label, "confidence" => 0.95, "suggested_new_category" => nil }
+      end
+
+      def parse_statement_transactions(_text)
+        [
+          {
+            booking_date: "2026-05-01",
+            amount_raw: "-15,50",
+            description_raw: "MOVIMENTO STUB DA PDF"
+          }
+        ]
       end
     end
   end

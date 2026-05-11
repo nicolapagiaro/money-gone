@@ -6,6 +6,8 @@ module MoneyGone
   class CLI < Thor
     desc "analyze BANK_SPEC ...", "Analyze bank statements (each BANK_SPEC is bank_id:path)"
     long_desc <<~LONG.strip
+      Supported formats per statement path extension: .csv, .xlsx/.xls, .pdf (PDF uses LM Studio to parse extracted text; scanned PDFs need Poppler or ImageMagick plus Tesseract).
+
       Provide one or more bank_id:path pairs, for example:
 
         money-gone analyze a:spec/fixtures/bank_a.csv b:spec/fixtures/bank_b.xlsx
@@ -64,6 +66,12 @@ module MoneyGone
     rescue MoneyGone::SchemaMapper::MappingError => e
       warn "Schema mapping error: #{e.message}"
       exit 3
+    rescue MoneyGone::PdfStatementExtractor::OcrUnavailableError => e
+      warn "PDF OCR: #{e.message}"
+      exit 5
+    rescue MoneyGone::PdfStatementExtractor::Error => e
+      warn "PDF: #{e.message}"
+      exit 1
     rescue StandardError => e
       warn "Unexpected error: #{e.message}"
       exit 1

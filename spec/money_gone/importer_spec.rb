@@ -27,4 +27,27 @@ RSpec.describe MoneyGone::Importer do
   ensure
     tempfile&.close!
   end
+
+  it "imports PDF via extractor + LLM into normalized transactions" do
+    llm = instance_double(MoneyGone::LlmClient)
+    extractor = instance_double(MoneyGone::PdfStatementExtractor)
+    allow(extractor).to receive(:extract).with("/tmp/x.pdf").and_return("--- Pagina 1 ---\nPOS TEST")
+    allow(llm).to receive(:parse_statement_transactions).with("--- Pagina 1 ---\nPOS TEST").and_return(
+      [{ booking_date: "2026-05-10", amount_raw: "-20,00", description_raw: "POS TEST" }]
+    )
+
+    rows = described_class.new(llm_client: llm, pdf_extractor: extractor).import_pdf("/tmp/x.pdf", bank_id: "pdfbank")
+    expect(rows.size).to eq(1)
+    tx = rows.first
+    expect(tx.bank_id).to eq("pdfbank")
+    expect(tx.booking_date).to eq("2026-05-10")
+    expect(tx.amount_signed).to eq(-20.0)
+    expect(tx.description_clean).to eq("pos test")
+  end
+
+  it "raises when PDF import is requested without an LLM client" do
+    expect do
+      described_class.new.import_pdf("/tmp/y.pdf", bank_id: "x")
+    end.to raise_error(ArgumentError, /llm_client/)
+  end
 end

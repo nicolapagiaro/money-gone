@@ -38,4 +38,16 @@ RSpec.describe MoneyGone::LlmClient do
     out = client.categorize(tx, allowed_categories: %w[Spesa Altro], include_suggestions: false)
     expect(out["category"]).to eq("Altro")
   end
+
+  it "parses statement extraction JSON into canonical rows" do
+    payload = <<~JSON.strip
+      {"transactions":[{"booking_date":"2026-05-02","amount_raw":"-3,25","description_raw":"TABACCHI"}]}
+    JSON
+    allow(client).to receive(:chat).and_return(payload)
+    rows = client.parse_statement_transactions("dummy text")
+    expect(rows.size).to eq(1)
+    expect(rows.first[:booking_date]).to eq("2026-05-02")
+    expect(rows.first[:amount_raw]).to eq("-3,25")
+    expect(rows.first[:description_raw]).to eq("TABACCHI")
+  end
 end

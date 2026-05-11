@@ -5,8 +5,15 @@ Ruby CLI for normalizing multi-bank statements and building terminal reports (se
 ## Requirements
 
 - Ruby 3.3+
-- [Bundled gems](Gemfile), including `thor`, `csv`, `roo`
-- [LM Studio](https://lmstudio.ai/) (for real categorization and `chat`)
+- [Bundled gems](Gemfile), including `thor`, `csv`, `roo`, `pdf-reader`, `rtesseract`
+- [LM Studio](https://lmstudio.ai/) (per categorizzazione reale, parsing dei PDF e `chat`)
+
+Per gli estratti **solo immagine** (PDF scannerizzati), servono anche tool di sistema oltre alle gem:
+
+- **Tesseract** con i pacchetti lingua che userai (es. italiano + inglese).
+- Un modo per convertire le pagine PDF in immagini: **Poppler** (`pdftoppm`, es. `brew install poppler`) oppure **ImageMagick + Ghostscript** (`magick` o `convert`).
+
+La lingua OCR è configurabile con la variabile d’ambiente `MONEY_GONE_OCR_LANG` (predefinito `ita+eng`, sintassi Tesseract).
 
 ## Setup
 
@@ -30,8 +37,12 @@ bundle install
 
 Senza `--stub`, ogni movimento non escluso (es. non giroconto) viene inviato a LM Studio per ottenere categoria, confidenza e eventuale categoria suggerita.
 
+Formati supportati per il path dell’estratto: **`.csv`**, **`.xlsx` / `.xls`**, **`.pdf`**.
+
+I CSV e gli Excel vengono letti in modo deterministico. I PDF passano da estrazione testo (se il PDF contiene testo selezionabile) o da OCR; il testo viene poi mandato a LM Studio per ricavare un elenco di movimenti in JSON (stesso modello usato per la categorizzazione).
+
 ```bash
-bundle exec ruby bin/money-gone analyze banca1:path/to/a.csv banca2:path/to/b.xlsx
+bundle exec ruby bin/money-gone analyze banca1:path/to/a.csv banca2:path/to/b.xlsx miaBanca:estratti/movimenti.pdf
 ```
 
 Override da riga di comando:
@@ -40,16 +51,18 @@ Override da riga di comando:
 bundle exec ruby bin/money-gone analyze --lmstudio-url http://127.0.0.1:1234/v1 --model "nome-modello-esatto" a:estratti/uno.csv
 ```
 
-Modalità **offline** (nessuna chiamata HTTP, categorie fisse di test):
+Modalità **offline** rispetto a LM Studio (nessuna chiamata HTTP); la categorizzazione e il parsing del testo estratto dal PDF usano risposte fisse di test.
 
 ```bash
 bundle exec ruby bin/money-gone analyze --stub a:spec/fixtures/bank_a.csv b:spec/fixtures/bank_b.xlsx
 ```
 
-Esempio con le fixture del repo:
+Con un PDF reale, **testo incorporato e OCR restano attivi** per produrre il testo da “tradurre” in righe; sono bypassate solo le richieste al modello remoto (movimenti simulati o categorie stub).
+
+Per provare un PDF in stub (richiede comunque un file PDF leggibile o toolchain OCR se è scannerizzato):
 
 ```bash
-bundle exec ruby bin/money-gone analyze --stub a:spec/fixtures/bank_a.csv b:spec/fixtures/bank_b.xlsx
+bundle exec ruby bin/money-gone analyze --stub mybank:/percorso/al/file.pdf
 ```
 
 ### Chat con il modello locale
@@ -85,9 +98,10 @@ Gli integration test usano `--stub` così non serve LM Studio in CI.
 ## Exit codes
 
 - `0` success
-- `1` unexpected error
+- `1` unexpected error (include alcuni errori generici su file PDF)
 - `2` LM Studio unavailable (connessione / server spento)
-- `3` schema / column mapping error
+- `3` schema / column mapping error (anche righe incomplete dal parsing PDF/LLM)
 - `4` LM Studio response error (HTTP o JSON non valido dal modello)
+- `5` PDF OCR non disponibile (manca Poppler/ImageMagick o la rasterizzazione delle pagine fallisce; messaggio con suggerimenti)
 
 Ambiente di test: `MONEY_GONE_LLM_FAIL=1` simula indisponibilità LM durante `analyze`.
