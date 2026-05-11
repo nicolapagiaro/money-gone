@@ -35,7 +35,7 @@ module MoneyGone
     def import_spreadsheet(path, bank_id: nil)
       x = Roo::Spreadsheet.open(path)
       sheet = x.sheet(0)
-      headers = sheet.row(1).map { |h| h.to_s.strip }
+      headers = sheet.row(1).map { |h| SchemaMapper.normalize_header_label(h) }
       (2..sheet.last_row).map do |i|
         row_values = sheet.row(i)
         row = headers.zip(row_values).to_h

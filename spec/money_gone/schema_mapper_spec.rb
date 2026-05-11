@@ -30,5 +30,19 @@ RSpec.describe MoneyGone::SchemaMapper do
       expect(mapped[:booking_date]).to eq("2026-01-15")
       expect(mapped[:description_raw]).to eq("Pagamento")
     end
+
+    it "normalizes Excel BOM, NBSP and unicode spaces so headers still match" do
+      row = {
+        "\uFEFFData" => "2026-01-01",
+        "Descrizione\u00A0" => "Caffè",
+        "Denaro\u00A0in\u00A0entrata/uscita" => "-3,50"
+      }
+
+      mapped = described_class.new.map_row(row)
+
+      expect(mapped[:booking_date]).to eq("2026-01-01")
+      expect(mapped[:description_raw]).to eq("Caffè")
+      expect(mapped[:amount_raw]).to eq("-3,50")
+    end
   end
 end
