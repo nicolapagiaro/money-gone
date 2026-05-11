@@ -7,5 +7,6 @@ ruby ">= 3.3.0"
 gem "thor"
 
 group :development, :test do
+  gem "rake"
   gem "rspec"
 end
