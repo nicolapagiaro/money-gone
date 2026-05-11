@@ -16,5 +16,19 @@ RSpec.describe MoneyGone::SchemaMapper do
 
       expect(mapped).to include(:booking_date, :amount_raw, :description_raw)
     end
+
+    it "maps Microsoft / Excel style Denaro in entrata/uscita to amount" do
+      row = {
+        "Data" => "2026-01-15",
+        "Descrizione" => "Pagamento",
+        "Denaro in entrata/uscita" => "-25,99"
+      }
+
+      mapped = described_class.new.map_row(row)
+
+      expect(mapped[:amount_raw]).to eq("-25,99")
+      expect(mapped[:booking_date]).to eq("2026-01-15")
+      expect(mapped[:description_raw]).to eq("Pagamento")
+    end
   end
 end
