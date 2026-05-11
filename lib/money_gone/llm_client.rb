@@ -4,6 +4,8 @@ require "json"
 
 module MoneyGone
   class LlmClient
+    class UnavailableError < StandardError; end
+
     def initialize(base_url:, model:, timeout_s: 30)
       @base_url = base_url
       @model = model

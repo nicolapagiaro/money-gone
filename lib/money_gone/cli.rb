@@ -25,8 +25,21 @@ module MoneyGone
         { bank_id: bank_id.strip, path: path.strip }
       end
 
+      if ENV["MONEY_GONE_LLM_FAIL"] == "1"
+        raise MoneyGone::LlmClient::UnavailableError, "LM Studio unavailable"
+      end
+
       result = Pipeline.run(banks, root: Dir.pwd)
       Reporter.new.render(result)
+    rescue MoneyGone::LlmClient::UnavailableError => e
+      warn "LM Studio unavailable: #{e.message}"
+      exit 2
+    rescue MoneyGone::SchemaMapper::MappingError => e
+      warn "Schema mapping error: #{e.message}"
+      exit 3
+    rescue StandardError => e
+      warn "Unexpected error: #{e.message}"
+      exit 1
     end
   end
 end

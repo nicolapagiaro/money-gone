@@ -47,6 +47,15 @@ module MoneyGone
 
     def build_transaction(row, bank_id:, index:)
       mapped = @schema_mapper.map_row(row)
+      missing = %i[booking_date amount_raw description_raw].reject do |key|
+        mapped[key] && !mapped[key].to_s.strip.empty?
+      end
+      if missing.any?
+        headers = row.keys.map(&:to_s).join(", ")
+        raise MoneyGone::SchemaMapper::MappingError,
+              "cannot map columns (missing #{missing.join(', ')}); headers were: #{headers}"
+      end
+
       normalized = @normalizer.normalize(mapped)
 
       Models::Transaction.new(
