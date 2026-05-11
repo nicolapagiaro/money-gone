@@ -2,14 +2,14 @@
 
 module MoneyGone
   class Pipeline
-    def self.run(banks, root: Dir.pwd, llm: nil)
+    def self.run(banks, root: Dir.pwd, llm:)
       new(root: root, llm: llm).run(banks)
     end
 
-    def initialize(root:, llm: nil, loader: nil)
+    def initialize(root:, llm:, loader: nil)
       @root = root
       @loader = loader || ConfigLoader.new(root: root)
-      @llm = llm || StubLlm.new
+      @llm = llm
     end
 
     def run(banks)
@@ -66,7 +66,7 @@ module MoneyGone
 
     # Minimal stand-in so `analyze` works without a running LM Studio (tests / local dry run).
     class StubLlm
-      def categorize(_tx)
+      def categorize(_tx, allowed_categories: [])
         { "category" => "Spesa", "confidence" => 0.95, "suggested_new_category" => nil }
       end
     end

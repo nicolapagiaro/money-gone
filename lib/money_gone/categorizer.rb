@@ -12,7 +12,7 @@ module MoneyGone
       transactions.map do |tx|
         next tx if tx[:excluded_from_spending]
 
-        decision = @llm.categorize(tx)
+        decision = @llm.categorize(tx, allowed_categories: @categories)
         category = decision["category"]
         category = "Altro" unless @categories.include?(category)
         category = "Altro" if decision["confidence"].to_f < @confidence_threshold

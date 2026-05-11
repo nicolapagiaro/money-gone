@@ -23,9 +23,10 @@ RSpec.describe MoneyGone::ConfigLoader do
       expect(config[:rules]).to have_key("transfer")
     end
 
-    it "loads lmstudio model" do
+    it "loads lmstudio model and endpoint" do
       config = loader.load_all
       expect(config[:lmstudio]["model"]).to eq("qwen3.2 8b")
+      expect(config[:lmstudio]["base_url"]).to include("127.0.0.1")
     end
   end
 end
