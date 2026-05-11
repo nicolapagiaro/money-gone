@@ -43,6 +43,7 @@ module MoneyGone
 
       {
         totals: compute_totals(rows),
+        flow_totals: compute_flow_totals(rows),
         transfers: rows.select { |r| r[:excluded_from_spending] },
         suggestions: compute_suggestions(rows),
         rows: rows
@@ -69,6 +70,23 @@ module MoneyGone
         cat = t[:category] || "Altro"
         acc[cat] += t[:amount_signed].to_f
       end
+    end
+
+    # Somme importo con segno contabile (+ entrate / - uscite), solo movimenti conteggiati in report (senza giroconti).
+    def compute_flow_totals(rows)
+      entrate = 0.0
+      uscite = 0.0
+      rows.each do |t|
+        next if t[:excluded_from_spending]
+
+        amt = t[:amount_signed].to_f
+        if amt.positive?
+          entrate += amt
+        elsif amt.negative?
+          uscite += amt
+        end
+      end
+      { entrate: entrate, uscite: uscite, netto: entrate + uscite }
     end
 
     def compute_suggestions(rows)

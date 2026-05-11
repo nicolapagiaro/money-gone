@@ -3,6 +3,15 @@
 module MoneyGone
   class Reporter
     def render(result, verbose: false)
+      ft = result[:flow_totals]
+      if ft
+        puts "Riepilogo flussi (esclusi i giroconti riconosciuti)"
+        puts "- Totale entrate: #{format('%.2f', ft.fetch(:entrate, 0.0).to_f)}"
+        puts "- Totale uscite: #{format('%.2f', ft.fetch(:uscite, 0.0).to_f)}"
+        puts "- Flusso di cassa netto (entrate − |uscite|): #{format('%.2f', ft.fetch(:netto, 0.0).to_f)}"
+        puts ""
+      end
+
       puts "Totali per categoria"
       result[:totals].each { |k, v| puts "- #{k}: #{format("%.2f", v)}" }
       puts "\nGiroconti riconosciuti"
