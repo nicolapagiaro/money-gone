@@ -3,9 +3,28 @@
 module MoneyGone
   # Suddivide il testo estratto da PDF (marcato con "--- Pagina N ---") in blocchi che rispettano max_chars (UTF-8 bytes).
   class StatementTextChunker
-    DEFAULT_MAX_CHARS = 24_000
+    # Conservativo per modelli con contesto ~4096 token (prompt sistema + istruzioni + testo utente).
+    DEFAULT_MAX_CHARS = 3000
+
+    MIN_BYTES = 768
+    MAX_BYTES_CAP = 120_000
 
     PAGE_SPLIT = /\n(?=--- Pagina \d+ ---)/
+
+    # Precedenza: MONEY_GONE_STATEMENT_CHUNK_BYTES, poi valore da config/rules.yml, poi default.
+    def self.effective_max_bytes(config_value = nil)
+      env = ENV["MONEY_GONE_STATEMENT_CHUNK_BYTES"].to_s.strip
+      v = if !env.empty?
+            env.to_i
+          elsif config_value.to_i.positive?
+            config_value.to_i
+          else
+            DEFAULT_MAX_CHARS
+          end
+      v = MIN_BYTES if v < MIN_BYTES
+      v = MAX_BYTES_CAP if v > MAX_BYTES_CAP
+      v
+    end
 
     def self.chunk(text, max_chars: DEFAULT_MAX_CHARS)
       text = text.to_s

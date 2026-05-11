@@ -12,11 +12,12 @@ require_relative "statement_text_chunker"
 module MoneyGone
   class Importer
     def initialize(schema_mapper: SchemaMapper.new, normalizer: Normalizer.new, llm_client: nil,
-                   pdf_extractor: nil)
+                   pdf_extractor: nil, statement_chunk_bytes: nil)
       @schema_mapper = schema_mapper
       @normalizer = normalizer
       @llm_client = llm_client
       @pdf_extractor = pdf_extractor
+      @statement_chunk_bytes = statement_chunk_bytes
     end
 
     def import_csv(path, bank_id: nil)
@@ -44,7 +45,8 @@ module MoneyGone
 
       extractor = @pdf_extractor || PdfStatementExtractor.new
       full_text = extractor.extract(path)
-      chunks = StatementTextChunker.chunk(full_text)
+      max_chars = StatementTextChunker.effective_max_bytes(@statement_chunk_bytes)
+      chunks = StatementTextChunker.chunk(full_text, max_chars: max_chars)
       mapped_rows = chunks.flat_map { |chunk| @llm_client.parse_statement_transactions(chunk) }
 
       mapped_rows.each_with_index.map do |mapped, index|

@@ -23,6 +23,11 @@ RSpec.describe MoneyGone::ConfigLoader do
       expect(config[:rules]).to have_key("transfer")
     end
 
+    it "loads statement_pdf chunk defaults for PDF→LM extraction" do
+      config = loader.load_all
+      expect(config[:rules].dig("statement_pdf", "max_chunk_bytes")).to eq(3000)
+    end
+
     it "loads lmstudio model and endpoint" do
       config = loader.load_all
       expect(config[:lmstudio]["model"]).to eq("qwen3.2 8b")

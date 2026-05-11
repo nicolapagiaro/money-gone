@@ -1,6 +1,11 @@
 ---
 transfer: {}
 
+# Testo PDF verso LM Studio: dimensione massima (byte UTF-8) per singola richiesta di estrazione movimenti.
+# Con contesto ~4096 token conviene restare su valori bassi (3000–4500); aumenta se carichi il modello con n_ctx maggiore.
+statement_pdf:
+  max_chunk_bytes: 3000
+
 categorization:
   # Sotto questa soglia la categoria viene forzata ad "Altro" (modelli piccoli spesso danno confidence basse).
   confidence_threshold: 0.42

@@ -15,7 +15,9 @@ module MoneyGone
     def run(banks, include_category_suggestions: false, parallel_jobs: nil)
       cfg = @loader.load_all
       categories = cfg[:categories]
-      importer = Importer.new(llm_client: @llm)
+      chunk_cfg = cfg[:rules]&.dig("statement_pdf", "max_chunk_bytes")
+      chunk_bytes = StatementTextChunker.effective_max_bytes(chunk_cfg)
+      importer = Importer.new(llm_client: @llm, statement_chunk_bytes: chunk_bytes)
       txs = []
       banks.each do |b|
         path = File.expand_path(b[:path], @root)
