@@ -4,9 +4,29 @@ require "thor"
 
 module MoneyGone
   class CLI < Thor
-    desc "analyze", "Analyze bank statements"
-    def analyze
-      puts "Not implemented yet"
+    desc "analyze BANK_SPEC ...", "Analyze bank statements (each BANK_SPEC is bank_id:path)"
+    long_desc <<~LONG.strip
+      Provide one or more bank_id:path pairs, for example:
+
+        money-gone analyze a:spec/fixtures/bank_a.csv b:spec/fixtures/bank_b.xlsx
+    LONG
+    def analyze(*bank_specs)
+      if bank_specs.empty?
+        say("error: provide at least one bank_id:path", :red)
+        exit 1
+      end
+
+      banks = bank_specs.map do |spec|
+        bank_id, path = spec.split(":", 2)
+        if bank_id.to_s.strip.empty? || path.to_s.strip.empty?
+          say("error: invalid bank spec #{spec.inspect} (expected bank_id:path)", :red)
+          exit 1
+        end
+        { bank_id: bank_id.strip, path: path.strip }
+      end
+
+      result = Pipeline.run(banks, root: Dir.pwd)
+      Reporter.new.render(result)
     end
   end
 end
