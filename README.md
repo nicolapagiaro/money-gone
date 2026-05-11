@@ -68,7 +68,11 @@ bundle exec ruby bin/money-gone chat --lmstudio-url http://127.0.0.1:1234/v1
 
 ## Configurazione categorie
 
-Le categorie ammesse per il modello sono in `config/categories.yml`. Puoi modificarle: in analisi reale il modello deve scegliere solo tra queste voci (più eventuale suggerimento in `suggested_new_category` gestito dall’app).
+Le categorie ammesse per il modello sono in `config/categories.yml`: sono pensate per coprire spese italiane tipiche (es. **Utenze**, **Supermercato e alimentari**, **Mangiare fuori**, **Svago**, …). Puoi editare l’elenco liberamente.
+
+- Il modello deve usare la **stessa stringa** di una delle voci (l’app accetta anche differenze di **maiuscole/minuscole**).
+- La soglia di confidenza sotto cui forziamo **Altro** è in `config/rules.yml` → `categorization.confidence_threshold` (predefinito ~0.42). Se vedi troppi «Altro», abbassala leggermente o verifica che LM risponda con `confidence` numerico; se `confidence` manca, l’app assume **0.75**.
+- **`suggested_new_category`**: nel prompt chiediamo esplicitamente di riempirlo quando serve un’etichetta più specifica o quando la vera categoria manca dalla lista.
 
 ## Tests
 

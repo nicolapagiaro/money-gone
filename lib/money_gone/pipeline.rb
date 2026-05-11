@@ -24,7 +24,16 @@ module MoneyGone
 
       rows = txs.map { |t| transaction_to_hash(t) }
       TransferDetector.new.detect(rows)
-      Categorizer.new(categories: categories, llm_client: @llm).categorize(rows)
+      rules = cfg[:rules] || {}
+      thr = rules.dig("categorization", "confidence_threshold")
+      confidence_threshold = thr.nil? ? 0.45 : thr.to_f
+      confidence_threshold = 0.45 if confidence_threshold <= 0.0
+
+      Categorizer.new(
+        categories: categories,
+        llm_client: @llm,
+        confidence_threshold: confidence_threshold
+      ).categorize(rows)
 
       {
         totals: compute_totals(rows),
@@ -67,7 +76,11 @@ module MoneyGone
     # Minimal stand-in so `analyze` works without a running LM Studio (tests / local dry run).
     class StubLlm
       def categorize(_tx, allowed_categories: [])
-        { "category" => "Spesa", "confidence" => 0.95, "suggested_new_category" => nil }
+        label =
+          allowed_categories.find { |c| c.match?(/supermercato/i) } ||
+          allowed_categories.reject { |c| normalize_label(c) == "altro" }.first ||
+          "Altro"
+        { "category" => label, "confidence" => 0.95, "suggested_new_category" => nil }
       end
     end
   end

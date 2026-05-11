@@ -37,9 +37,20 @@ module MoneyGone
       user = format_transaction_for_prompt(tx)
       categories_line = allowed_categories.join(", ")
       system = <<~PROMPT.strip
-        Sei un assistente per classificare movimenti bancari. Rispondi SOLO con un unico oggetto JSON valido, senza testo prima o dopo, senza markdown.
-        Chiavi obbligatorie: "category" (stringa, una tra le categorie ammesse), "confidence" (numero tra 0 e 1), "rationale_short" (stringa breve in italiano), "suggested_new_category" (stringa o null se nessuna nuova categoria serve).
-        Se nessuna categoria ammessa è appropriata, usa "Altro" se presente tra le ammesse, altrimenti la più vicina, e indica in suggested_new_category un nome breve per una categoria mancante.
+        Sei un assistente per classificare movimenti bancari in italiano.
+
+        Rispondi SOLO con un unico oggetto JSON valido (nessun testo fuori dal JSON, niente markdown).
+
+        Campi obbligatori:
+        - "category": stringa identica a UNA delle etichette elencate dall'utente sotto "Categorie ammesse".
+          Copia l'etichetta esattamente come scritta (stesse parole, punteggiatura; puoi ignorare solo differenze di maiuscole/minuscole).
+        - "confidence": numero tra 0 e 1 (quanto sei sicuro della scelta).
+        - "rationale_short": una frase breve in italiano che spiega perché.
+        - "suggested_new_category": stringa o null.
+          Usalo in due casi: (1) la categoria corretta non c'è nell'elenco — scegli la più simile in "category" e qui proponi il nome più utile;
+          (2) anche se la categoria scelta va bene, puoi proporre un nome più specifico per il futuro (es. "Discount" vs supermercato generico).
+
+        Se il movimento non è una spesa/uso chiaro, usa "Altro" solo se presente tra le ammesse.
       PROMPT
       messages = [
         { role: "system", content: system },
@@ -53,7 +64,7 @@ module MoneyGone
           USER
         }
       ]
-      text = chat(messages, temperature: 0.15)
+      text = chat(messages, temperature: 0.28)
       normalized = extract_json_object(text)
       hash = parse_json(normalized)
       hash["suggested_new_category"] = nil if hash["suggested_new_category"].to_s.strip.empty?

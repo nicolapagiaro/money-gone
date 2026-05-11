@@ -1,2 +1,7 @@
 ---
 transfer: {}
+
+categorization:
+  # Sotto questa soglia la categoria viene forzata ad "Altro" (modelli piccoli spesso danno confidence basse).
+  confidence_threshold: 0.42
+

@@ -1,13 +1,19 @@
 ---
+# Etichette esatte: il modello deve copiare una di queste stringhe nel campo JSON "category"
+# (l'app fa anche abbinamento senza distinzione maiuscole/minuscole).
 - Casa
-- Spesa
-- Trasporti
-- Salute
+- Affitto e mutuo
+- Supermercato e alimentari
+- Mangiare fuori
+- Bar e caffè
+- Trasporti e carburante
 - Utenze
+- Telefono e internet
 - Abbonamenti
 - Svago
-- Ristoranti
-- Shopping
+- Salute e farmacia
+- Shopping e vestiario
 - Stipendio
+- Bonifici in uscita
 - Investimenti
 - Altro

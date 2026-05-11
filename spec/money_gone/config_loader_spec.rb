@@ -13,9 +13,9 @@ RSpec.describe MoneyGone::ConfigLoader do
       expect(config.keys).to contain_exactly(:categories, :rules, :lmstudio)
     end
 
-    it "loads categories including Spesa and Altro" do
+    it "loads categories including Utenze, Altro and Supermercato" do
       config = loader.load_all
-      expect(config[:categories]).to include("Spesa", "Altro")
+      expect(config[:categories]).to include("Altro", "Utenze", "Supermercato e alimentari")
     end
 
     it "loads rules with transfer key" do
