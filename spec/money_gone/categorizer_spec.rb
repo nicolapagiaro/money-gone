@@ -9,7 +9,12 @@ RSpec.describe MoneyGone::Categorizer do
     allow(fake_llm).to receive(:categorize).and_return(
       { "category" => "Crypto", "confidence" => 0.9, "suggested_new_category" => "Crypto" }
     )
-    out = described_class.new(categories: %w[Spesa Altro], llm_client: fake_llm, confidence_threshold: 0.65).categorize([tx]).first
+    out = described_class.new(
+      categories: %w[Spesa Altro],
+      llm_client: fake_llm,
+      confidence_threshold: 0.65,
+      include_suggestions: true
+    ).categorize([tx]).first
     expect(out[:category]).to eq("Altro")
     expect(out[:suggested_new_category]).to eq("Crypto")
   end

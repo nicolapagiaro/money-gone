@@ -2,43 +2,81 @@
 
 module MoneyGone
   class Categorizer
-    def initialize(categories:, llm_client:, confidence_threshold: 0.45)
+    def initialize(
+      categories:,
+      llm_client:,
+      confidence_threshold: 0.45,
+      include_suggestions: false,
+      parallel_jobs: 1
+    )
       @categories = categories
       @llm = llm_client
       @confidence_threshold = confidence_threshold
+      @include_suggestions = include_suggestions
+      @parallel_jobs = [parallel_jobs.to_i, 1].max
     end
 
     def categorize(transactions)
-      transactions.map do |tx|
-        next tx if tx[:excluded_from_spending]
+      return sequential_categorize(transactions) if @parallel_jobs <= 1
 
-        decision = normalize_decision(@llm.categorize(tx, allowed_categories: @categories))
-        raw_label = decision["category"].to_s.strip
-        resolved = resolve_category(raw_label)
-        confidence = parse_confidence(decision["confidence"])
-        suggestion = normalize_suggestion(decision["suggested_new_category"])
-
-        category =
-          if resolved.nil?
-            "Altro"
-          elsif confidence < @confidence_threshold
-            "Altro"
-          else
-            resolved
-          end
-
-        suggestion = cleanup_suggestion(suggestion, category, resolved)
-
-        tx.merge(
-          category: category,
-          suggested_new_category: suggestion,
-          category_confidence: confidence,
-          category_raw: raw_label
-        )
-      end
+      parallel_categorize(transactions)
     end
 
     private
+
+    def sequential_categorize(transactions)
+      transactions.map { |tx| classify_row(tx) }
+    end
+
+    def parallel_categorize(transactions)
+      out = transactions.dup
+      work = transactions.each_with_index.reject { |(tx, _)| tx[:excluded_from_spending] }
+
+      work.each_slice(@parallel_jobs) do |batch|
+        batch.map do |(tx, idx)|
+          Thread.new { [idx, classify_row(tx)] }
+        end.each do |thr|
+          idx, merged = thr.value
+          out[idx] = merged
+        end
+      end
+
+      out
+    end
+
+    def classify_row(tx)
+      return tx if tx[:excluded_from_spending]
+
+      decision = normalize_decision(
+        @llm.categorize(
+          tx,
+          allowed_categories: @categories,
+          include_suggestions: @include_suggestions
+        )
+      )
+      raw_label = decision["category"].to_s.strip
+      resolved = resolve_category(raw_label)
+      confidence = parse_confidence(decision["confidence"])
+      suggestion = @include_suggestions ? normalize_suggestion(decision["suggested_new_category"]) : nil
+
+      category =
+        if resolved.nil?
+          "Altro"
+        elsif confidence < @confidence_threshold
+          "Altro"
+        else
+          resolved
+        end
+
+      suggestion = cleanup_suggestion(suggestion, category, resolved) if @include_suggestions
+
+      tx.merge(
+        category: category,
+        suggested_new_category: suggestion,
+        category_confidence: confidence,
+        category_raw: raw_label
+      )
+    end
 
     def normalize_decision(hash)
       return {} unless hash.is_a?(Hash)
@@ -50,6 +88,8 @@ module MoneyGone
       return 0.75 if value.nil? || value.to_s.strip.empty?
 
       Float(value).clamp(0.0, 1.0)
+    rescue ArgumentError, TypeError
+      0.0
     end
 
     def resolve_category(label)

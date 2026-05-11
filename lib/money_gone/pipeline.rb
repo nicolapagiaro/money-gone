@@ -2,8 +2,8 @@
 
 module MoneyGone
   class Pipeline
-    def self.run(banks, root: Dir.pwd, llm:)
-      new(root: root, llm: llm).run(banks)
+    def self.run(banks, root: Dir.pwd, llm:, **opts)
+      new(root: root, llm: llm).run(banks, **opts)
     end
 
     def initialize(root:, llm:, loader: nil)
@@ -12,7 +12,7 @@ module MoneyGone
       @llm = llm
     end
 
-    def run(banks)
+    def run(banks, include_category_suggestions: false, parallel_jobs: nil)
       cfg = @loader.load_all
       categories = cfg[:categories]
       importer = Importer.new
@@ -29,10 +29,16 @@ module MoneyGone
       confidence_threshold = thr.nil? ? 0.45 : thr.to_f
       confidence_threshold = 0.45 if confidence_threshold <= 0.0
 
+      pj = parallel_jobs.nil? ? rules.dig("categorization", "parallel_jobs")&.to_i : parallel_jobs.to_i
+      pj = 1 if pj.nil? || pj < 1
+      pj = [pj, 16].min
+
       rows = Categorizer.new(
         categories: categories,
         llm_client: @llm,
-        confidence_threshold: confidence_threshold
+        confidence_threshold: confidence_threshold,
+        include_suggestions: include_category_suggestions,
+        parallel_jobs: pj
       ).categorize(rows)
 
       {
@@ -76,7 +82,7 @@ module MoneyGone
 
     # Minimal stand-in so `analyze` works without a running LM Studio (tests / local dry run).
     class StubLlm
-      def categorize(_tx, allowed_categories: [])
+      def categorize(_tx, allowed_categories: [], **_)
         label =
           allowed_categories.find { |c| c.match?(/supermercato/i) } ||
           allowed_categories.reject { |c| c.to_s.strip.downcase == "altro" }.first ||

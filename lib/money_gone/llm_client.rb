@@ -33,10 +33,65 @@ module MoneyGone
       extract_assistant_text(json)
     end
 
-    def categorize(tx, allowed_categories:)
+    def categorize(tx, allowed_categories:, include_suggestions: false)
       user = format_transaction_for_prompt(tx)
       categories_line = allowed_categories.join(", ")
-      system = <<~PROMPT.strip
+
+      system, user_block, temp = if include_suggestions
+        [system_prompt_full(categories_line), user_block_full(user, categories_line), 0.28]
+      else
+        [system_prompt_fast(categories_line), user_block_fast(user, categories_line), 0.2]
+      end
+
+      messages = [
+        { role: "system", content: system },
+        { role: "user", content: user_block }
+      ]
+      text = chat(messages, temperature: temp)
+      normalized = extract_json_object(text)
+      hash = parse_json(normalized)
+      hash["suggested_new_category"] = nil if hash["suggested_new_category"].to_s.strip.empty?
+      hash["rationale_short"] = nil if hash["rationale_short"].to_s.strip.empty?
+      hash
+    rescue JSON::ParserError => e
+      raise ResponseError, "invalid JSON from model: #{e.message}; raw=#{defined?(text) ? text.to_s[0, 400] : ''}"
+    end
+
+    def ping
+      get_json("models")
+    end
+
+    private
+
+    def system_prompt_fast(categories_line)
+      <<~PROMPT.strip
+        Sei un assistente che classifica movimenti bancari italiani in una di poche categorie di spesa/risparmio fisse.
+
+        Leggi data, importo (negativo = uscita dal conto) e descrizione; scegli l'etichetta più adatta tra quelle ammesse.
+        Se nessuna categoria calza bene, usa "Altro" solo se compare nell'elenco sotto.
+
+        Rispondi SOLO con questo JSON valido, senza testo prima o dopo e senza markdown:
+        {"category":"...","confidence":0.xx}
+
+        Regole:
+        - "category": copia ESATTAMENTE una di queste etichette: #{categories_line}
+          (unica eccezione: puoi ignorare solo maiuscole/minuscole).
+        - "confidence": numero tra 0 e 1 (quanto sei sicuro).
+        - Non aggiungere altri campi, spiegazioni o ragionamento visibile.
+      PROMPT
+    end
+
+    def user_block_fast(user, categories_line)
+      <<~USER.strip
+        Etichette ammesse: #{categories_line}
+
+        Movimento da classificare:
+        #{user}
+      USER
+    end
+
+    def system_prompt_full(categories_line)
+      <<~PROMPT.strip
         Sei un assistente per classificare movimenti bancari in italiano.
 
         Rispondi SOLO con un unico oggetto JSON valido (nessun testo fuori dal JSON, niente markdown).
@@ -52,32 +107,16 @@ module MoneyGone
 
         Se il movimento non è una spesa/uso chiaro, usa "Altro" solo se presente tra le ammesse.
       PROMPT
-      messages = [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: <<~USER.strip
-            Categorie ammesse: #{categories_line}
-
-            Movimento da classificare:
-            #{user}
-          USER
-        }
-      ]
-      text = chat(messages, temperature: 0.28)
-      normalized = extract_json_object(text)
-      hash = parse_json(normalized)
-      hash["suggested_new_category"] = nil if hash["suggested_new_category"].to_s.strip.empty?
-      hash
-    rescue JSON::ParserError => e
-      raise ResponseError, "invalid JSON from model: #{e.message}; raw=#{defined?(text) ? text.to_s[0, 400] : ''}"
     end
 
-    def ping
-      get_json("models")
-    end
+    def user_block_full(user, categories_line)
+      <<~USER.strip
+        Categorie ammesse: #{categories_line}
 
-    private
+        Movimento da classificare:
+        #{user}
+      USER
+    end
 
     def stringify_message(m)
       h = m.transform_keys(&:to_s)

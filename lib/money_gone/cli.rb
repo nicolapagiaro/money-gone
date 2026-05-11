@@ -14,9 +14,16 @@ module MoneyGone
 
       With a running LM Studio, categorization uses the OpenAI-compatible API from config/lmstudio.yml
       (override with --lmstudio-url and --model).
+
+      By default the LM asks only category + confidence (faster). Use --category-suggestions to also ask for
+      rationale and ideas for new category labels (more tokens / slower).
+
+      Use --jobs N for parallel HTTP calls (VRAM/CPU permitting; see categorization.parallel_jobs in config/rules.yml).
     LONG
     option :stub, type: :boolean, default: false, desc: "Use stub categorizer (no HTTP)"
     option :verbose, type: :boolean, aliases: "-v", default: false, desc: "List each movement with category and LM raw label"
+    option :category_suggestions, type: :boolean, default: false, desc: "Ask LM for rationale + optional new-category ideas (slower)"
+    option :jobs, aliases: "-j", type: :numeric, desc: "Parallel LM categorize requests (default: rules.yml parallel_jobs)"
     option :model, type: :string, desc: "Override model id from config"
     option :lmstudio_url, type: :string, desc: "Override LM Studio base URL (e.g. http://127.0.0.1:1234/v1)"
     def analyze(*bank_specs)
@@ -39,7 +46,14 @@ module MoneyGone
       end
 
       llm = build_llm(stub: options[:stub], model: option_string(:model), lmstudio_url: option_string(:lmstudio_url))
-      result = Pipeline.run(banks, root: Dir.pwd, llm: llm)
+      pj = option_numeric(:jobs)
+      result = Pipeline.run(
+        banks,
+        root: Dir.pwd,
+        llm: llm,
+        include_category_suggestions: options[:category_suggestions],
+        parallel_jobs: pj
+      )
       Reporter.new.render(result, verbose: options[:verbose])
     rescue MoneyGone::LlmClient::UnavailableError => e
       warn "LM Studio unavailable: #{e.message}"
@@ -117,6 +131,14 @@ module MoneyGone
 
         s = v.to_s.strip
         s.empty? ? nil : s
+      end
+
+      def option_numeric(key)
+        v = options[key]
+        return nil if v.nil?
+
+        n = v.to_i
+        n.positive? ? n : nil
       end
     end
   end
