@@ -2,6 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     diff-lcs (1.6.2)
+    rake (13.4.2)
     rspec (3.13.2)
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
@@ -22,11 +23,13 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  rake
   rspec
   thor
 
 CHECKSUMS
   diff-lcs (1.6.2)
+  rake (13.4.2)
   rspec (3.13.2)
   rspec-core (3.13.6)
   rspec-expectations (3.13.5)
