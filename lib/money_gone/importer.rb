@@ -5,6 +5,7 @@ require "roo"
 
 require_relative "models/transaction"
 require_relative "normalizer"
+require_relative "pdf_extract_dump"
 require_relative "pdf_statement_extractor"
 require_relative "schema_mapper"
 require_relative "statement_text_chunker"
@@ -12,12 +13,15 @@ require_relative "statement_text_chunker"
 module MoneyGone
   class Importer
     def initialize(schema_mapper: SchemaMapper.new, normalizer: Normalizer.new, llm_client: nil,
-                   pdf_extractor: nil, statement_chunk_bytes: nil)
+                   pdf_extractor: nil, statement_chunk_bytes: nil,
+                   project_root: nil, dump_pdf_extract: false)
       @schema_mapper = schema_mapper
       @normalizer = normalizer
       @llm_client = llm_client
       @pdf_extractor = pdf_extractor
       @statement_chunk_bytes = statement_chunk_bytes
+      @project_root = project_root
+      @dump_pdf_extract = dump_pdf_extract
     end
 
     def import_csv(path, bank_id: nil)
@@ -45,6 +49,8 @@ module MoneyGone
 
       extractor = @pdf_extractor || PdfStatementExtractor.new
       full_text = extractor.extract(path)
+      maybe_dump_pdf_text(path, bank_id, full_text)
+
       max_chars = StatementTextChunker.effective_max_bytes(@statement_chunk_bytes)
       chunks = StatementTextChunker.chunk(full_text, max_chars: max_chars)
       mapped_rows = chunks.flat_map { |chunk| @llm_client.parse_statement_transactions(chunk) }
@@ -66,6 +72,18 @@ module MoneyGone
     end
 
     private
+
+    def maybe_dump_pdf_text(path, bank_id, full_text)
+      return unless @dump_pdf_extract
+      return if @project_root.nil? || @project_root.to_s.strip.empty?
+
+      PdfExtractDump.write!(
+        root: @project_root,
+        bank_id: bank_id,
+        source_path: path,
+        text: full_text
+      )
+    end
 
     def build_transaction_from_pdf_row(mapped, bank_id:, index:)
       missing = %i[booking_date amount_raw description_raw].reject do |key|

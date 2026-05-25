@@ -4,7 +4,9 @@ transfer: {}
 # Testo PDF verso LM Studio: dimensione massima (byte UTF-8) per singola richiesta di estrazione movimenti.
 # Con contesto ~4096 token conviene restare su valori bassi (3000–4500); aumenta se carichi il modello con n_ctx maggiore.
 statement_pdf:
-  max_chunk_bytes: 3000
+  max_chunk_bytes: 4000
+  # Salva testo estratto/OCR in tmp/money-gone-pdf-extract/ prima delle chiamate LLM (cartella tmp in .gitignore).
+  dump_extracted_text: true
 
 categorization:
   # Sotto questa soglia la categoria viene forzata ad "Altro" (modelli piccoli spesso danno confidence basse).

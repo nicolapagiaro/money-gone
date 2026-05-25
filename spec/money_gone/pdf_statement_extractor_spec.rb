@@ -23,4 +23,19 @@ RSpec.describe MoneyGone::PdfStatementExtractor do
     expect(out).to include("--- Pagina 1 ---")
     expect(out).to include(dense)
   end
+
+  it "removes blank and whitespace-only lines from extracted text" do
+    filler = ("MOVIMENTO BONIFICO XX " * 10).strip
+    page_text = "#{filler}\nriga uno\n\n  \n\nriga due"
+    page = instance_double(PDF::Reader::Page, text: page_text)
+    reader = instance_double(PDF::Reader, pages: [page], page_count: 1)
+    allow(File).to receive(:file?).with(expanded).and_return(true)
+    allow(PDF::Reader).to receive(:new).with(expanded).and_return(reader)
+
+    out = described_class.new.extract(path)
+    expect(out).to include("riga uno")
+    expect(out).to include("riga due")
+    expect(out).not_to include("\n\n")
+    expect(out.lines(chomp: true)).not_to include("")
+  end
 end

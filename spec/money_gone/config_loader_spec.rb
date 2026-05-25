@@ -25,7 +25,9 @@ RSpec.describe MoneyGone::ConfigLoader do
 
     it "loads statement_pdf chunk defaults for PDF→LM extraction" do
       config = loader.load_all
-      expect(config[:rules].dig("statement_pdf", "max_chunk_bytes")).to eq(3000)
+      pdf = config[:rules]["statement_pdf"]
+      expect(pdf["max_chunk_bytes"]).to eq(4000)
+      expect(pdf["dump_extracted_text"]).to be true
     end
 
     it "loads lmstudio model and endpoint" do

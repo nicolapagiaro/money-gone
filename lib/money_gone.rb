@@ -3,6 +3,7 @@
 require_relative "money_gone/cli"
 require_relative "money_gone/config_loader"
 require_relative "money_gone/llm_client"
+require_relative "money_gone/pdf_extract_dump"
 require_relative "money_gone/pdf_statement_extractor"
 require_relative "money_gone/importer"
 require_relative "money_gone/models/transaction"

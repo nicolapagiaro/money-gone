@@ -24,12 +24,22 @@ module MoneyGone
         "--- Pagina #{i + 1} ---\n#{page.text}"
       end.join("\n\n")
 
-      return combined if meaningful_text?(combined, page_count: reader.page_count)
+      raw =
+        if meaningful_text?(combined, page_count: reader.page_count)
+          combined
+        else
+          ocr_text_from_pdf(path)
+        end
 
-      ocr_text_from_pdf(path)
+      strip_empty_lines(raw)
     end
 
     private
+
+    # Rimuove righe vuote e solo-spazi (tipico rumore OCR); riduce dimensione file dump e chunk verso l'LLM.
+    def strip_empty_lines(text)
+      text.to_s.each_line.map(&:strip).reject(&:empty?).join("\n")
+    end
 
     def meaningful_text?(combined, page_count:)
       collapsed = combined.gsub(/\s+/, " ").strip

@@ -17,7 +17,13 @@ module MoneyGone
       categories = cfg[:categories]
       chunk_cfg = cfg[:rules]&.dig("statement_pdf", "max_chunk_bytes")
       chunk_bytes = StatementTextChunker.effective_max_bytes(chunk_cfg)
-      importer = Importer.new(llm_client: @llm, statement_chunk_bytes: chunk_bytes)
+      dump_pdf = pdf_extract_dump_enabled?(cfg[:rules])
+      importer = Importer.new(
+        llm_client: @llm,
+        statement_chunk_bytes: chunk_bytes,
+        project_root: @root,
+        dump_pdf_extract: dump_pdf
+      )
       txs = []
       banks.each do |b|
         path = File.expand_path(b[:path], @root)
@@ -53,6 +59,17 @@ module MoneyGone
     end
 
     private
+
+    # ENV MONEY_GONE_DUMP_PDF_TEXT=1|true|yes|on abilita; =0|false|no|off disabilita. Se ENV assente: rules.yml statement_pdf.dump_extracted_text.
+    def pdf_extract_dump_enabled?(rules)
+      env = ENV["MONEY_GONE_DUMP_PDF_TEXT"]&.strip
+      if env && !env.empty?
+        return true if %w[1 true yes on].include?(env.downcase)
+        return false if %w[0 false no off].include?(env.downcase)
+      end
+
+      rules&.dig("statement_pdf", "dump_extracted_text") == true
+    end
 
     def transaction_to_hash(t)
       {

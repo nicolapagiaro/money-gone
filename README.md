@@ -15,10 +15,12 @@ Per gli estratti **solo immagine** (PDF scannerizzati), servono anche tool di si
 
 La lingua OCR è configurabile con la variabile d’ambiente `MONEY_GONE_OCR_LANG` (predefinito `ita+eng`, sintassi Tesseract).
 
-Il testo inviato a LM Studio per **estrarre i movimenti dal PDF** viene spezzato in più richieste se è lungo. Il tetto predefinito è basso (**3000 byte UTF-8** per chunk) per restare dentro contesti tipo **4096 token**. Puoi alzarlo se nel server LM carichi il modello con **context length** maggiore:
+Il testo inviato a LM Studio per **estrarre i movimenti dal PDF** viene spezzato in più richieste se è lungo. Il tetto in byte per chunk è configurabile (valori bassi, es. 3000–4000, aiutano con contesti ~**4096 token**):
 
 - `config/rules.yml` → `statement_pdf.max_chunk_bytes`
 - oppure variabile d’ambiente `MONEY_GONE_STATEMENT_CHUNK_BYTES` (ha priorità sul valore in YAML)
+
+Per **ispezionare** il testo estratto (PDF nativo o OCR) **prima** delle chiamate LLM, è attivo il salvataggio in `tmp/money-gone-pdf-extract/` sotto la root del progetto (`tmp/` non è versionato). Si controlla con `statement_pdf.dump_extracted_text` in `rules.yml` oppure con `MONEY_GONE_DUMP_PDF_TEXT` (`1` / `true` / `yes` / `on` per forzare l’attivazione, `0` / `false` / `no` / `off` per disabilitare anche se nel YAML è true).
 
 ## Setup
 
