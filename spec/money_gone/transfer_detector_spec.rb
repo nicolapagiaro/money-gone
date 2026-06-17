@@ -106,4 +106,42 @@ RSpec.describe MoneyGone::TransferDetector do
     expect(a[:excluded_from_spending]).not_to be(true)
     expect(b[:excluded_from_spending]).not_to be(true)
   end
+
+  it "matches cross-bank transfers by opposite amount on same date" do
+    txs = [
+      {
+        id: "x1",
+        bank_id: "a",
+        booking_date: "2026-05-02",
+        amount_signed: -150.0,
+        description_raw: "Bonifico uscita",
+        description_clean: "bonifico uscita"
+      },
+      {
+        id: "x2",
+        bank_id: "b",
+        booking_date: "2026-05-02",
+        amount_signed: 150.0,
+        description_raw: "Bonifico entrata",
+        description_clean: "bonifico entrata"
+      }
+    ]
+
+    out = described_class.new.detect(
+      txs,
+      rules: {
+        "description_raw_keywords" => ["conto deposito"]
+      }
+    )
+
+    a = out.find { |t| t[:id] == "x1" }
+    b = out.find { |t| t[:id] == "x2" }
+    expect(a[:excluded_from_spending]).to be(true)
+    expect(b[:excluded_from_spending]).to be(true)
+    expect(a[:excluded_reason]).to eq("internal_transfer_cross_bank_amount_date")
+    expect(b[:excluded_reason]).to eq("internal_transfer_cross_bank_amount_date")
+    expect(a[:transfer_source_bank]).to eq("a")
+    expect(a[:transfer_destination_bank]).to eq("b")
+    expect(a[:transfer_group_id]).to eq(b[:transfer_group_id])
+  end
 end

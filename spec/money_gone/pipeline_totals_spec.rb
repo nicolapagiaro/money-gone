@@ -144,4 +144,47 @@ RSpec.describe "Pipeline totals" do
   ensure
     tempfile&.close!
   end
+
+  it "excludes cross-bank opposite movements with same amount and date" do
+    fake_llm = instance_double(MoneyGone::LlmClient)
+    allow(fake_llm).to receive(:categorize).and_return(
+      { "category" => "Altro", "confidence" => 0.9, "suggested_new_category" => nil }
+    )
+
+    f_a = Tempfile.new(["stmt_a_cross", ".csv"])
+    f_a.write <<~CSV
+      Data,Importo EUR,Descrizione
+      2026-01-15,"-100,00",Bonifico uscita verso banca B
+    CSV
+    f_a.flush
+
+    f_b = Tempfile.new(["stmt_b_cross", ".csv"])
+    f_b.write <<~CSV
+      Data,Importo EUR,Descrizione
+      2026-01-15,"100,00",Bonifico entrata da banca A
+      2026-01-16,"-5,00",Caffè
+    CSV
+    f_b.flush
+
+    root = File.expand_path("../..", __dir__)
+    result = Dir.chdir(root) do
+      MoneyGone::Pipeline.run(
+        [
+          { bank_id: "a", path: f_a.path },
+          { bank_id: "b", path: f_b.path }
+        ],
+        root: root,
+        llm: fake_llm
+      )
+    end
+
+    expect(result[:transfers].size).to eq(2)
+    expect(result[:transfers].map { |t| t[:excluded_reason] }.uniq).to eq(["internal_transfer_cross_bank_amount_date"])
+    expect(result[:flow_totals][:entrate]).to be_within(0.01).of(0.0)
+    expect(result[:flow_totals][:uscite]).to be_within(0.01).of(-5.0)
+    expect(result[:flow_totals][:netto]).to be_within(0.01).of(-5.0)
+  ensure
+    f_a&.close!
+    f_b&.close!
+  end
 end

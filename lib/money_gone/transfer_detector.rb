@@ -5,7 +5,8 @@ module MoneyGone
     DEFAULT_RULES = {
       "enabled" => true,
       "description_raw_keywords" => [],
-      "description_raw_exact" => []
+      "description_raw_exact" => [],
+      "cross_bank_amount_tolerance" => 0.01
     }.freeze
 
     def detect(transactions, rules: {})
@@ -14,6 +15,7 @@ module MoneyGone
 
       keywords = normalize_rules(cfg["description_raw_keywords"])
       exact_rules = normalize_rules(cfg["description_raw_exact"])
+      cross_bank_amount_tolerance = cfg["cross_bank_amount_tolerance"].to_f
       gid_idx = 1
 
       transactions.each do |tx|
@@ -27,6 +29,8 @@ module MoneyGone
         tx[:transfer_destination_bank] = destination_bank
         gid_idx += 1
       end
+
+      mark_cross_bank_amount_date_transfers(transactions, tolerance: cross_bank_amount_tolerance, gid_idx: gid_idx)
 
       transactions
     end
@@ -55,6 +59,46 @@ module MoneyGone
         ["conto_deposito", bank]
       else
         [bank, bank]
+      end
+    end
+
+    def mark_cross_bank_amount_date_transfers(transactions, tolerance:, gid_idx:)
+      unmarked = transactions.reject { |tx| tx[:excluded_from_spending] }
+      unmarked.combination(2) do |a, b|
+        next if a[:excluded_from_spending] || b[:excluded_from_spending]
+        next if a[:bank_id].to_s == b[:bank_id].to_s
+        next unless same_booking_date?(a, b)
+        next unless opposite_amounts?(a, b, tolerance: tolerance)
+
+        source, destination = infer_cross_bank_direction(a, b)
+        group_id = "tg#{gid_idx}"
+        gid_idx += 1
+
+        [a, b].each do |tx|
+          tx[:excluded_from_spending] = true
+          tx[:excluded_reason] = "internal_transfer_cross_bank_amount_date"
+          tx[:transfer_group_id] = group_id
+          tx[:transfer_source_bank] = source
+          tx[:transfer_destination_bank] = destination
+        end
+      end
+    end
+
+    def same_booking_date?(a, b)
+      a[:booking_date].to_s == b[:booking_date].to_s
+    end
+
+    def opposite_amounts?(a, b, tolerance:)
+      (a[:amount_signed].to_f + b[:amount_signed].to_f).abs <= tolerance
+    end
+
+    def infer_cross_bank_direction(a, b)
+      if a[:amount_signed].to_f.negative? && b[:amount_signed].to_f.positive?
+        [a[:bank_id].to_s, b[:bank_id].to_s]
+      elsif b[:amount_signed].to_f.negative? && a[:amount_signed].to_f.positive?
+        [b[:bank_id].to_s, a[:bank_id].to_s]
+      else
+        [a[:bank_id].to_s, b[:bank_id].to_s]
       end
     end
 
