@@ -18,3 +18,13 @@
 - Identified empty `bugs.md` as the main knowledge gap.
 - Added baseline bug registry content and documented current quirks/residual risks.
 - Refreshed `hot.md` to include lint completion status and more actionable next steps.
+
+## 2026-06-17 12:30 UTC+2 - LlmClient ruby_llm migration
+- Added `ruby_llm` gem (~> 1.16) to `Gemfile`.
+- Rewrote `lib/money_gone/llm_client.rb` to use `RubyLLM.context` + OpenAI provider against LM Studio `base_url`.
+- Removed `Net::HTTP` transport; mapped `RubyLLM`/`Faraday` errors to existing `UnavailableError` / `ResponseError`.
+- Updated `spec/money_gone/llm_client_spec.rb` to stub `llm_chat` instead of raw `chat`.
+- Updated `stack.md`, `decisions.md`, and `hot.md`.
+
+## 2026-06-17 12:45 UTC+2 - LM Studio json_schema fix
+- Switched categorization from `response_format: json_object` to `with_schema` because LM Studio only accepts `json_schema` or `text`.

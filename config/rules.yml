@@ -23,5 +23,5 @@ categorization:
   # Se c'e' match, la categoria viene assegnata prima dell'LLM e il movimento non viene inviato al modello.
   description_category_includes:
     "mega masera": "Supermercato e alimentari"
-    "pratica numero pag0000000208346915": "Affitto e mutuo"
+    "pratica numero pag": "Affitto e mutuo"
 

@@ -27,3 +27,8 @@
 - **Rationale:** Prevents double counting and distorted spending/flow summaries across same-bank and cross-bank moves.
 - **Trade-off:** Cross-bank heuristic (same date + opposite amount + tolerance) can produce false positives in edge cases.
 
+## 2026-06-17 - `ruby_llm` as LLM transport layer
+- **Decision:** Replace hand-rolled `Net::HTTP` in `LlmClient` with the `ruby_llm` gem (`RubyLLM.context` + OpenAI provider against LM Studio).
+- **Rationale:** Less boilerplate for chat/completions, centralized error types, and a path to structured output if local models support it.
+- **Trade-off:** New dependency (Faraday stack); LM Studio rejects `json_object` — categorization must use `with_schema` (`json_schema` mode).
+

@@ -1,18 +1,33 @@
 # frozen_string_literal: true
 
 require "json"
-require "net/http"
-require "uri"
+require "ruby_llm"
 
 module MoneyGone
   class LlmClient
     class UnavailableError < StandardError; end
     class ResponseError < StandardError; end
 
+    UNAVAILABLE_ERRORS = [
+      RubyLLM::ServiceUnavailableError,
+      RubyLLM::UnauthorizedError,
+      RubyLLM::ForbiddenError
+    ].freeze
+
+    NETWORK_ERRORS = [
+      Faraday::ConnectionFailed,
+      Faraday::TimeoutError,
+      Errno::ECONNREFUSED,
+      Errno::ETIMEDOUT,
+      Errno::EHOSTUNREACH,
+      SocketError
+    ].freeze
+
     def initialize(base_url:, model:, timeout_s: 60)
       @base_url = base_url.to_s.chomp("/")
       @model = model
       @timeout_s = timeout_s
+      @llm_context = build_llm_context
     end
 
     attr_reader :base_url, :model, :timeout_s
@@ -23,45 +38,133 @@ module MoneyGone
 
     # OpenAI-compatible chat; returns assistant message text.
     def chat(messages, temperature: 0.35)
-      body = {
-        "model" => model,
-        "messages" => messages.map { |m| stringify_message(m) },
-        "temperature" => temperature,
-        "stream" => false
-      }
-      json = post_json("chat/completions", body)
-      extract_assistant_text(json)
+      msgs = messages.map { |m| normalize_message(m) }
+      session = llm_chat(temperature: temperature)
+      prior = msgs[0...-1]
+      last = msgs[-1]
+      prior.each { |m| session.add_message(role: m[:role], content: m[:content]) }
+
+      response =
+        if last && last[:role] == :user
+          session.ask(last[:content])
+        else
+          msgs.each { |m| session.add_message(role: m[:role], content: m[:content]) }
+          session.complete
+        end
+
+      text = extract_content(response)
+      raise ResponseError, "empty response from model" if text.strip.empty?
+
+      text
+    rescue *UNAVAILABLE_ERRORS, *NETWORK_ERRORS => e
+      raise UnavailableError, e.message
+    rescue RubyLLM::Error => e
+      raise ResponseError, e.message
     end
 
     def categorize(tx, allowed_categories:, include_suggestions: false)
       user = format_transaction_for_prompt(tx)
       categories_line = allowed_categories.join(", ")
 
-      system, user_block, temp = if include_suggestions
-        [system_prompt_full(categories_line), user_block_full(user, categories_line), 0.28]
+      system, user_block, temp, schema = if include_suggestions
+        [system_prompt_full(categories_line), user_block_full(user, categories_line), 0.28, categorization_schema_full]
       else
-        [system_prompt_fast(categories_line), user_block_fast(user, categories_line), 0.2]
+        [system_prompt_fast(categories_line), user_block_fast(user, categories_line), 0.2, categorization_schema_fast]
       end
 
-      messages = [
-        { role: "system", content: system },
-        { role: "user", content: user_block }
-      ]
-      text = chat(messages, temperature: temp)
-      normalized = extract_json_object(text)
-      hash = parse_json(normalized)
-      hash["suggested_new_category"] = nil if hash["suggested_new_category"].to_s.strip.empty?
-      hash["rationale_short"] = nil if hash["rationale_short"].to_s.strip.empty?
+      session = llm_chat(temperature: temp).with_schema(schema)
+      session.add_message(role: :system, content: system)
+      response = session.ask(user_block)
+      hash = normalize_categorization_hash(response.content)
       hash
     rescue JSON::ParserError => e
-      raise ResponseError, "invalid JSON from model: #{e.message}; raw=#{defined?(text) ? text.to_s[0, 400] : ''}"
+      raw = defined?(response) ? extract_content(response).to_s[0, 400] : ""
+      raise ResponseError, "invalid JSON from model: #{e.message}; raw=#{raw}"
+    rescue *UNAVAILABLE_ERRORS, *NETWORK_ERRORS => e
+      raise UnavailableError, e.message
+    rescue RubyLLM::Error => e
+      raise ResponseError, e.message
     end
 
     def ping
-      get_json("models")
+      provider = RubyLLM::Providers::OpenAI.new(@llm_context.config)
+      models = provider.list_models
+      { "data" => models.map { |m| { "id" => m.id } } }
+    rescue *UNAVAILABLE_ERRORS, *NETWORK_ERRORS => e
+      raise UnavailableError, e.message
+    rescue RubyLLM::Error => e
+      raise ResponseError, e.message
     end
 
     private
+
+    def build_llm_context
+      RubyLLM.context do |config|
+        config.openai_api_key = ENV.fetch("OPENAI_API_KEY", "lm-studio")
+        config.openai_api_base = base_url
+        config.request_timeout = timeout_s
+        config.max_retries = 0
+      end
+    end
+
+    def llm_chat(temperature:)
+      @llm_context.chat(model: model, provider: :openai, assume_model_exists: true)
+                  .with_temperature(temperature)
+    end
+
+    def normalize_message(message)
+      h = message.transform_keys(&:to_s)
+      {
+        role: h["role"].to_sym,
+        content: h["content"]
+      }
+    end
+
+    def extract_content(response)
+      content = response.content
+      return content if content.is_a?(String)
+      return JSON.generate(content) if content.is_a?(Hash)
+
+      content.to_s
+    end
+
+    def normalize_categorization_hash(content)
+      hash =
+        if content.is_a?(Hash)
+          content.transform_keys(&:to_s)
+        else
+          parse_json(extract_json_object(content.to_s))
+        end
+      hash["suggested_new_category"] = nil if hash["suggested_new_category"].to_s.strip.empty?
+      hash["rationale_short"] = nil if hash["rationale_short"].to_s.strip.empty?
+      hash
+    end
+
+    def categorization_schema_fast
+      {
+        type: "object",
+        properties: {
+          category: { type: "string" },
+          confidence: { type: "number" }
+        },
+        required: %w[category confidence],
+        additionalProperties: false
+      }
+    end
+
+    def categorization_schema_full
+      {
+        type: "object",
+        properties: {
+          category: { type: "string" },
+          confidence: { type: "number" },
+          rationale_short: { type: %w[string null] },
+          suggested_new_category: { type: %w[string null] }
+        },
+        required: %w[category confidence rationale_short suggested_new_category],
+        additionalProperties: false
+      }
+    end
 
     def system_prompt_fast(categories_line)
       <<~PROMPT.strip
@@ -118,15 +221,6 @@ module MoneyGone
       USER
     end
 
-    def stringify_message(m)
-      h = m.transform_keys(&:to_s)
-      out = {}
-      out["role"] = h["role"] if h["role"]
-      out["content"] = h["content"] if h.key?("content")
-      out["name"] = h["name"] if h["name"]
-      out
-    end
-
     # Try whole string, then strip ```json fences, then first {...} span.
     def extract_json_object(text)
       raw = text.to_s.strip
@@ -159,63 +253,6 @@ module MoneyGone
         importo (segno contabile, negativo = uscita): #{tx[:amount_signed]}
         descrizione: #{tx[:description_clean] || tx[:description_raw]}
       TXT
-    end
-
-    def extract_assistant_text(json)
-      choice = json["choices"]&.first
-      content = choice&.dig("message", "content")
-      raise ResponseError, "missing choices[0].message.content in LM response" if content.nil? || content.to_s.strip.empty?
-
-      content.to_s
-    end
-
-    def post_json(path, payload)
-      uri = endpoint_uri(path)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = (uri.scheme == "https")
-      http.open_timeout = timeout_s
-      http.read_timeout = timeout_s
-      req = Net::HTTP::Post.new(uri)
-      req["Content-Type"] = "application/json"
-      req.body = JSON.generate(payload)
-      res = http.request(req)
-      raise_unavailable_or_error!(req, res)
-      JSON.parse(res.body)
-    rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, SocketError, Net::OpenTimeout, Net::ReadTimeout => e
-      raise UnavailableError, e.message
-    end
-
-    def get_json(path)
-      uri = endpoint_uri(path)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = (uri.scheme == "https")
-      http.open_timeout = timeout_s
-      http.read_timeout = timeout_s
-      req = Net::HTTP::Get.new(uri)
-      res = http.request(req)
-      raise_unavailable_or_error!(req, res)
-      JSON.parse(res.body)
-    rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EHOSTUNREACH, SocketError, Net::OpenTimeout, Net::ReadTimeout => e
-      raise UnavailableError, e.message
-    end
-
-    def endpoint_uri(path)
-      p = path.sub(%r{\A/}, "")
-      URI.parse("#{base_url}/#{p}")
-    end
-
-    def raise_unavailable_or_error!(_req, res)
-      code = res.code.to_i
-      case code
-      when 200, 201
-        return
-      when 0
-        raise UnavailableError, "empty HTTP response"
-      when 401, 403, 404, 502, 503
-        raise UnavailableError, "HTTP #{code}: #{res.body.to_s[0, 500]}"
-      else
-        raise ResponseError, "HTTP #{code}: #{res.body.to_s[0, 500]}"
-      end
     end
   end
 end

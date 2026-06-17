@@ -16,7 +16,8 @@
 
 ## LLM Integration
 - Provider mode: local LM Studio using OpenAI-compatible API.
-- Transport: `net/http` with JSON payloads and explicit timeout handling.
+- Client library: `ruby_llm` (~> 1.16) via isolated `RubyLLM.context` per `LlmClient` instance.
+- Transport: Faraday (from `ruby_llm`) with `openai_api_base` pointed at LM Studio and explicit timeout handling.
 - Config source: `config/lmstudio.yml` (`base_url`, `model`, `timeout_s`).
 - Operational modes: live LM mode and deterministic stub mode (`--stub` / env flag).
 

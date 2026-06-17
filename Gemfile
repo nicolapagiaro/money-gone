@@ -13,3 +13,5 @@ group :development, :test do
   gem "rake"
   gem "rspec"
 end
+
+gem "ruby_llm", "~> 1.16"
