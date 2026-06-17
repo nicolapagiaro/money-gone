@@ -14,12 +14,6 @@ module MoneyGone
       @normalizer = normalizer
     end
 
-    def import_csv(path, bank_id: nil)
-      CSV.read(path, headers: true).each_with_index.map do |row, index|
-        build_transaction(row.to_h, bank_id:, index:)
-      end
-    end
-
     def import_path(path, bank_id: nil)
       ext = File.extname(path).downcase
       case ext
@@ -29,6 +23,12 @@ module MoneyGone
         import_spreadsheet(path, bank_id: bank_id)
       else
         raise ArgumentError, "unsupported statement format: #{ext.inspect} (#{path})"
+      end
+    end
+
+    def import_csv(path, bank_id: nil)
+      CSV.read(path, headers: true).each_with_index.map do |row, index|
+        build_transaction(row.to_h, bank_id:, index:)
       end
     end
 
