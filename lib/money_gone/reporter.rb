@@ -13,7 +13,16 @@ module MoneyGone
       end
 
       puts "Totali per categoria"
-      result[:totals].each { |k, v| puts "- #{k}: #{format("%.2f", v)}" }
+      result[:totals].each do |category, total|
+        puts "- #{category}: #{format('%.2f', total)}"
+        top_expenses_for_category(result[:rows], category).each do |row|
+          date = row[:booking_date].to_s
+          description = row[:description_clean].to_s.strip
+          description = row[:description_raw].to_s.strip if description.empty?
+          description = "-" if description.empty?
+          puts "    #{date} | #{description} | #{format('%.2f', row[:amount_signed].to_f)}"
+        end
+      end
       puts "\nGiroconti riconosciuti"
       result[:transfers].each do |t|
         source = t[:transfer_source_bank] || t[:bank_id] || "-"
@@ -37,6 +46,19 @@ module MoneyGone
         puts "    LM raw: #{raw} | confidenza: #{conf_s}"
         puts "    #{t[:description_clean]}" if t[:description_clean]
       end
+    end
+
+    private
+
+    def top_expenses_for_category(rows, category, limit: 3)
+      Array(rows)
+        .select do |row|
+          !row[:excluded_from_spending] &&
+            (row[:category] || "Altro") == category &&
+            row[:amount_signed].to_f.negative?
+        end
+        .sort_by { |row| row[:amount_signed].to_f }
+        .first(limit)
     end
   end
 end

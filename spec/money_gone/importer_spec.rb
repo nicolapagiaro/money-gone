@@ -18,7 +18,7 @@ RSpec.describe MoneyGone::Importer do
     tx = rows.first
     expect(tx.id).to eq("a:1")
     expect(tx.bank_id).to eq("a")
-    expect(tx.booking_date).to eq("2026-05-01")
+    expect(tx.booking_date).to eq(Date.new(2026, 5, 1))
     expect(tx.amount_signed).to eq(-12.5)
     expect(tx.description_raw.to_s.strip).to eq("SUPER   MERCATO")
     expect(tx.description_clean).to eq("super mercato")
