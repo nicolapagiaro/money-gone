@@ -13,5 +13,13 @@ RSpec.describe MoneyGone::Normalizer do
       expect(normalized[:amount_signed]).to eq(-12.5)
       expect(normalized[:description_clean]).to eq("super mercato")
     end
+
+    it "normalizes amount even when trailing euro symbol is misencoded" do
+      tx = { amount_raw: "33,31â\u0082¬", description_raw: "Bonifico" }
+
+      normalized = described_class.new.normalize(tx)
+
+      expect(normalized[:amount_signed]).to eq(33.31)
+    end
   end
 end

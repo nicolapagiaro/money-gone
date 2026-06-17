@@ -12,7 +12,7 @@ module MoneyGone
     private
 
     def normalize_amount(value)
-      text = value.to_s.strip
+      text = sanitize_amount_text(value)
       decimal_text =
         if text.include?(",")
           text.delete(".").tr(",", ".")
@@ -21,6 +21,16 @@ module MoneyGone
         end
 
       Float(decimal_text)
+    end
+
+    def sanitize_amount_text(value)
+      text = value.to_s.dup
+      text.force_encoding(Encoding::UTF_8)
+      text = text.encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: "")
+      text.tr!("\u00A0\u202F", " ")
+      text.gsub!(/[[:space:]]+/, "")
+      text.gsub!(/[^\d,.\-+]/, "")
+      text
     end
 
     def normalize_description(value)
