@@ -26,6 +26,7 @@ module MoneyGone
       rules = cfg[:rules] || {}
       transfer_rules = rules["transfer"] || {}
       TransferDetector.new.detect(rows, rules: transfer_rules)
+      rows = apply_description_category_includes(rows, categories, rules.dig("categorization", "description_category_includes"))
       thr = rules.dig("categorization", "confidence_threshold")
       confidence_threshold = thr.nil? ? 0.45 : thr.to_f
       confidence_threshold = 0.45 if confidence_threshold <= 0.0
@@ -97,6 +98,59 @@ module MoneyGone
 
         acc[s] += 1
       end
+    end
+
+    def apply_description_category_includes(rows, categories, includes_rules)
+      mapping = normalize_includes_mapping(includes_rules)
+      return rows if mapping.empty?
+
+      rows.map do |row|
+        next row if row[:excluded_from_spending]
+        next row if row[:category]
+
+        text = row[:description_clean].to_s
+        text = row[:description_raw].to_s if text.strip.empty?
+        folded = fold_ascii(text).downcase
+        next row if folded.strip.empty?
+
+        match = mapping.find { |needle, _| folded.include?(needle) }
+        next row unless match
+
+        category = resolve_category(match[1], categories)
+        next row if category.nil?
+
+        row.merge(
+          category: category,
+          category_raw: category,
+          category_confidence: 1.0,
+          category_source: "rule_includes",
+          skip_llm_categorization: true
+        )
+      end
+    end
+
+    def normalize_includes_mapping(raw_mapping)
+      return [] unless raw_mapping.is_a?(Hash)
+
+      raw_mapping.each_with_object([]) do |(pattern, category), acc|
+        needle = fold_ascii(pattern).downcase.strip
+        cat = category.to_s.strip
+        next if needle.empty? || cat.empty?
+
+        acc << [needle, cat]
+      end
+    end
+
+    def resolve_category(label, categories)
+      return nil if label.to_s.strip.empty?
+
+      target = label.to_s.strip
+      categories.find { |c| c == target } ||
+        categories.find { |c| fold_ascii(c).downcase == fold_ascii(target).downcase }
+    end
+
+    def fold_ascii(str)
+      str.to_s.unicode_normalize(:nfd).gsub(/\p{M}/u, "")
     end
 
     # Minimal stand-in so `analyze` works without a running LM Studio (tests / local dry run).

@@ -4,6 +4,56 @@ require "spec_helper"
 require "tempfile"
 
 RSpec.describe "Pipeline totals" do
+  it "categorizes by includes rule before llm and skips llm for matched rows" do
+    fake_llm = instance_double(MoneyGone::LlmClient)
+    expect(fake_llm).to receive(:categorize).once.and_return(
+      { "category" => "Altro", "confidence" => 0.9, "suggested_new_category" => nil }
+    )
+
+    tempfile = Tempfile.new(["stmt_rules", ".csv"])
+    tempfile.write <<~CSV
+      Data,Importo EUR,Descrizione
+      2026-01-15,"-25,00",Esselunga Milano
+      2026-01-16,"-12,00",Spesa generica
+    CSV
+    tempfile.flush
+
+    loader = instance_double(MoneyGone::ConfigLoader)
+    allow(loader).to receive(:load_all).and_return(
+      {
+        categories: ["Supermercato e alimentari", "Altro"],
+        rules: {
+          "transfer" => { "enabled" => false },
+          "categorization" => {
+            "confidence_threshold" => 0.42,
+            "parallel_jobs" => 1,
+            "description_category_includes" => {
+              "esselunga" => "Supermercato e alimentari"
+            }
+          }
+        },
+        lmstudio: {}
+      }
+    )
+
+    root = File.expand_path("../..", __dir__)
+    result = Dir.chdir(root) do
+      MoneyGone::Pipeline.new(root: root, llm: fake_llm, loader: loader).run(
+        [{ bank_id: "t", path: tempfile.path }]
+      )
+    end
+
+    expect(result[:rows].size).to eq(2)
+    matched = result[:rows].find { |r| r[:description_clean].to_s.include?("esselunga") }
+    unmatched = result[:rows].find { |r| r[:description_clean] == "spesa generica" }
+    expect(matched[:category]).to eq("Supermercato e alimentari")
+    expect(matched[:category_source]).to eq("rule_includes")
+    expect(matched[:category_confidence]).to eq(1.0)
+    expect(unmatched[:category]).to eq("Altro")
+  ensure
+    tempfile&.close!
+  end
+
   it "sums multiple rows into separate category buckets (no last-row overwrite)" do
     fake_llm = instance_double(MoneyGone::LlmClient)
     allow(fake_llm).to receive(:categorize) do |tx|

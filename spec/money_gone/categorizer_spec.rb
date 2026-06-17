@@ -3,6 +3,26 @@
 require "spec_helper"
 
 RSpec.describe MoneyGone::Categorizer do
+  it "does not call llm when row is pre-categorized and marked to skip" do
+    tx = {
+      description_clean: "esselunga",
+      category: "Supermercato e alimentari",
+      category_source: "rule_includes",
+      category_confidence: 1.0,
+      skip_llm_categorization: true
+    }
+    fake_llm = instance_double("llm")
+    expect(fake_llm).not_to receive(:categorize)
+
+    out = described_class.new(
+      categories: ["Supermercato e alimentari", "Altro"],
+      llm_client: fake_llm
+    ).categorize([tx]).first
+
+    expect(out[:category]).to eq("Supermercato e alimentari")
+    expect(out[:category_source]).to eq("rule_includes")
+  end
+
   it "assigns Altro when llm category is not allowed" do
     tx = { description_clean: "misterioso addebito" }
     fake_llm = instance_double("llm")

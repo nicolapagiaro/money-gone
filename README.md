@@ -29,6 +29,7 @@ bundle install
 ### Analisi estratti (con categorizzazione via LM)
 
 Senza `--stub`, ogni movimento non escluso (es. non giroconto) viene inviato a LM Studio per ottenere categoria, confidenza e eventuale categoria suggerita.
+Eccezione: se `config/rules.yml` contiene una regola in `categorization.description_category_includes` che matcha la descrizione, la categoria viene assegnata in modo deterministico e quel movimento non viene inviato all'LLM.
 
 ```bash
 bundle exec ruby bin/money-gone analyze banca1:path/to/a.csv banca2:path/to/b.xlsx
@@ -73,6 +74,16 @@ Le categorie ammesse per il modello sono in `config/categories.yml`: sono pensat
 - Il modello deve usare la **stessa stringa** di una delle voci (l’app accetta anche differenze di **maiuscole/minuscole**).
 - La soglia di confidenza sotto cui forziamo **Altro** è in `config/rules.yml` → `categorization.confidence_threshold` (predefinito ~0.42). Se vedi troppi «Altro», abbassala leggermente o verifica che LM risponda con `confidence` numerico; se `confidence` manca, l’app assume **0.75**.
 - **`suggested_new_category`**: nel prompt chiediamo esplicitamente di riempirlo quando serve un’etichetta più specifica o quando la vera categoria manca dalla lista.
+- **Regole includes prima dell'LLM**: in `config/rules.yml` puoi impostare:
+
+```yml
+categorization:
+  description_category_includes:
+    "esselunga": "Supermercato e alimentari"
+    "telepass": "Auto e trasporti"
+```
+
+La chiave viene cercata come sottostringa nella descrizione (match case-insensitive, senza accenti). Al primo match valido, la categoria viene assegnata e il movimento viene escluso dalla richiesta LLM.
 
 ## Tests
 

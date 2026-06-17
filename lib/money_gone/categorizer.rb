@@ -46,6 +46,7 @@ module MoneyGone
 
     def classify_row(tx)
       return tx if tx[:excluded_from_spending]
+      return tx if tx[:skip_llm_categorization]
 
       decision = normalize_decision(
         @llm.categorize(

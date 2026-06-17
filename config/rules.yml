@@ -19,4 +19,9 @@ categorization:
   confidence_threshold: 0.42
   # Parallelismo richieste LM (1 = sequenziale). La GPU/CPU locale potrebbe degradare con troppi job.
   parallel_jobs: 1
+  # Match parziale (case-insensitive, senza accenti) su description_clean; fallback su description_raw.
+  # Se c'e' match, la categoria viene assegnata prima dell'LLM e il movimento non viene inviato al modello.
+  description_category_includes:
+    "mega masera": "Supermercato e alimentari"
+    "pratica numero pag0000000208346915": "Affitto e mutuo"
 
