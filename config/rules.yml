@@ -1,5 +1,18 @@
 ---
-transfer: {}
+transfer:
+  enabled: true
+  # Match parziale (case-insensitive) sulla descrizione raw originale del movimento.
+  description_raw_keywords:
+    - "conto deposito"
+    - "giroconto"
+    - "trasferimento interno"
+    - "versamento su conto deposito"
+    - "versamento da conto deposito"
+    - "versamento su progetto"
+    - "versamento da progetto"
+    - "versamento ricorrente su"
+  # Match esatto (case-insensitive) sulla descrizione raw.
+  description_raw_exact: []
 
 categorization:
   # Sotto questa soglia la categoria viene forzata ad "Altro" (modelli piccoli spesso danno confidence basse).

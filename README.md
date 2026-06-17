@@ -82,6 +82,43 @@ bundle exec rspec -fd
 
 Gli integration test usano `--stub` così non serve LM Studio in CI.
 
+## Detection giroconti (stessa banca e banche diverse)
+
+La pipeline esclude dai totali di spesa i movimenti identificati come giroconto (`excluded_from_spending: true`), così non falsano `entrate`, `uscite` e `netto`.
+
+La detection e` volutamente semplice: ogni movimento viene marcato come giroconto solo se la sua `description_raw` matcha regole statiche configurate.
+
+Regole disponibili:
+
+- `description_raw_keywords`: match parziale (case-insensitive), ad esempio se la descrizione contiene `"conto deposito"`.
+- `description_raw_exact`: match esatto (case-insensitive), utile per descrizioni standard della banca.
+
+Non vengono usati:
+
+- tolleranza su importo
+- differenza giorni tra movimenti
+- sistema di score/confidenza
+
+### Configurazione (`config/rules.yml`)
+
+```yml
+transfer:
+  enabled: true
+  description_raw_keywords:
+    - "conto deposito"
+    - "giroconto"
+    - "trasferimento interno"
+    - "versamento su conto deposito"
+    - "versamento da conto deposito"
+  description_raw_exact: []
+```
+
+Note pratiche:
+
+- aggiungi keyword specifiche della tua banca in `description_raw_keywords`;
+- usa `description_raw_exact` quando vuoi regole molto strette;
+- i movimenti esclusi vengono marcati con `excluded_reason: internal_transfer_by_description`.
+
 ## Exit codes
 
 - `0` success

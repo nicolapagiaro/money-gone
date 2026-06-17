@@ -23,8 +23,9 @@ module MoneyGone
       end
 
       rows = txs.map { |t| transaction_to_hash(t) }
-      TransferDetector.new.detect(rows)
       rules = cfg[:rules] || {}
+      transfer_rules = rules["transfer"] || {}
+      TransferDetector.new.detect(rows, rules: transfer_rules)
       thr = rules.dig("categorization", "confidence_threshold")
       confidence_threshold = thr.nil? ? 0.45 : thr.to_f
       confidence_threshold = 0.45 if confidence_threshold <= 0.0

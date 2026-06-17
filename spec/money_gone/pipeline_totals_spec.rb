@@ -41,7 +41,7 @@ RSpec.describe "Pipeline totals" do
     tempfile&.close!
   end
 
-  it "computes entrate/uscite excluding internal transfers" do
+  it "computes entrate/uscite excluding transfers by raw description rule" do
     fake_llm = instance_double(MoneyGone::LlmClient)
     allow(fake_llm).to receive(:categorize).and_return(
       { "category" => "Altro", "confidence" => 0.9, "suggested_new_category" => nil }
@@ -50,14 +50,14 @@ RSpec.describe "Pipeline totals" do
     f_a = Tempfile.new(["stmt_a", ".csv"])
     f_a.write <<~CSV
       Data,Importo EUR,Descrizione
-      2026-01-15,"-100,00",Bonifico verso B
+      2026-01-15,"-100,00",Versamento su conto deposito
     CSV
     f_a.flush
 
     f_b = Tempfile.new(["stmt_b", ".csv"])
     f_b.write <<~CSV
       Data,Importo EUR,Descrizione
-      2026-01-15,"100,00",Accredito da A
+      2026-01-15,"100,00",Stipendio
       2026-01-16,"-5,00",Caffè
     CSV
     f_b.flush
@@ -74,10 +74,10 @@ RSpec.describe "Pipeline totals" do
       )
     end
 
-    expect(result[:transfers].size).to eq(2)
-    expect(result[:flow_totals][:entrate]).to be_within(0.01).of(0.0)
+    expect(result[:transfers].size).to eq(1)
+    expect(result[:flow_totals][:entrate]).to be_within(0.01).of(100.0)
     expect(result[:flow_totals][:uscite]).to be_within(0.01).of(-5.0)
-    expect(result[:flow_totals][:netto]).to be_within(0.01).of(-5.0)
+    expect(result[:flow_totals][:netto]).to be_within(0.01).of(95.0)
   ensure
     f_a&.close!
     f_b&.close!
@@ -109,6 +109,38 @@ RSpec.describe "Pipeline totals" do
     expect(result[:flow_totals][:entrate]).to be_within(0.01).of(100.0)
     expect(result[:flow_totals][:uscite]).to be_within(0.01).of(-30.5)
     expect(result[:flow_totals][:netto]).to be_within(0.01).of(69.5)
+  ensure
+    tempfile&.close!
+  end
+
+  it "does not exclude opposite movements without matching raw description rule" do
+    fake_llm = instance_double(MoneyGone::LlmClient)
+    allow(fake_llm).to receive(:categorize).and_return(
+      { "category" => "Altro", "confidence" => 0.9, "suggested_new_category" => nil }
+    )
+
+    tempfile = Tempfile.new(["stmt_same", ".csv"])
+    tempfile.write <<~CSV
+      Data,Importo EUR,Descrizione
+      2026-01-10,"-200,00",Pagamento carta
+      2026-01-10,"200,00",Rimborso
+      2026-01-11,"-10,00",Spesa reale
+    CSV
+    tempfile.flush
+
+    root = File.expand_path("../..", __dir__)
+    result = Dir.chdir(root) do
+      MoneyGone::Pipeline.run(
+        [{ bank_id: "solo", path: tempfile.path }],
+        root: root,
+        llm: fake_llm
+      )
+    end
+
+    expect(result[:transfers].size).to eq(0)
+    expect(result[:flow_totals][:entrate]).to be_within(0.01).of(200.0)
+    expect(result[:flow_totals][:uscite]).to be_within(0.01).of(-210.0)
+    expect(result[:flow_totals][:netto]).to be_within(0.01).of(-10.0)
   ensure
     tempfile&.close!
   end

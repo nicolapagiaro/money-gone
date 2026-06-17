@@ -15,7 +15,12 @@ module MoneyGone
       puts "Totali per categoria"
       result[:totals].each { |k, v| puts "- #{k}: #{format("%.2f", v)}" }
       puts "\nGiroconti riconosciuti"
-      result[:transfers].each { |t| puts "- #{t[:id]} (#{t[:amount_signed]})" }
+      result[:transfers].each do |t|
+        source = t[:transfer_source_bank] || t[:bank_id] || "-"
+        destination = t[:transfer_destination_bank] || t[:bank_id] || "-"
+        amount = format("%.2f", t[:amount_signed].to_f)
+        puts "- #{t[:id]} | #{source} -> #{destination} | #{amount}"
+      end
       puts "\nNuove categorie suggerite"
       result[:suggestions].each { |k, v| puts "- #{k}: #{v}" }
 
