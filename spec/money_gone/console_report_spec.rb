@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MoneyGone::Reporter do
+RSpec.describe MoneyGone::Infrastructure::ConsoleReport do
   it 'prints source bank, destination bank, and amount for each transfer' do
     result = {
       flow_totals: { entrate: 0.0, uscite: -10.0, netto: -10.0 },
@@ -19,10 +19,12 @@ RSpec.describe MoneyGone::Reporter do
       rows: []
     }
 
-    output = capture_stdout { described_class.new.render(result) }
+    output = StringIO.new
+    described_class.new(io: output).render(result)
 
-    expect(output).to include('Giroconti riconosciuti')
-    expect(output).to include('t1 | illimity -> conto_deposito | -200.00')
+    text = output.string
+    expect(text).to include('Giroconti riconosciuti')
+    expect(text).to include('t1 | illimity -> conto_deposito | -200.00')
   end
 
   it 'prints top 3 expenses under each category total with indented sub-list' do
@@ -41,21 +43,14 @@ RSpec.describe MoneyGone::Reporter do
       ]
     }
 
-    output = capture_stdout { described_class.new.render(result) }
+    output = StringIO.new
+    described_class.new(io: output).render(result)
 
-    expect(output).to include('- Spesa: -100.00')
-    expect(output).to include('    2026-01-10 | Affitto | -50.00')
-    expect(output).to include('    2026-01-11 | Supermercato | -30.00')
-    expect(output).to include('    2026-01-12 | Ristorante | -15.00')
-    expect(output).not_to include('2026-01-13 | Caffe | -5.00')
-  end
-
-  def capture_stdout
-    original_stdout = $stdout
-    $stdout = StringIO.new
-    yield
-    $stdout.string
-  ensure
-    $stdout = original_stdout
+    text = output.string
+    expect(text).to include('- Spesa: -100.00')
+    expect(text).to include('    2026-01-10 | Affitto | -50.00')
+    expect(text).to include('    2026-01-11 | Supermercato | -30.00')
+    expect(text).to include('    2026-01-12 | Ristorante | -15.00')
+    expect(text).not_to include('2026-01-13 | Caffe | -5.00')
   end
 end

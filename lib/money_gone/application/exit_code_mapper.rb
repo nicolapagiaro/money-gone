@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module MoneyGone
-  module Cli
-    module LlmExitHandler
+  module Application
+    module ExitCodeMapper
       module_function
 
       def handle(error, interrupt_exit: nil)
@@ -13,13 +13,19 @@ module MoneyGone
 
       def dispatch_error(error)
         case error
-        when MoneyGone::LlmClient::UnavailableError then unavailable_exit(error)
-        when MoneyGone::LlmClient::ResponseError then response_exit(error)
-        when MoneyGone::SchemaMapper::MappingError then mapping_exit(error)
+        when BankSpecParser::ParseError then parse_error_exit(error)
+        when Infrastructure::LlmClient::UnavailableError then unavailable_exit(error)
+        when Infrastructure::LlmClient::ResponseError then response_exit(error)
+        when SchemaMapper::MappingError then mapping_exit(error)
         else
           warn "Unexpected error: #{error.message}"
           exit 1
         end
+      end
+
+      def parse_error_exit(error)
+        warn "error: #{error.message}"
+        exit 1
       end
 
       def unavailable_exit(error)

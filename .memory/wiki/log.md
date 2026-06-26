@@ -33,3 +33,10 @@
 - Added `.rubocop.yml` with `rubocop-performance`, `Metrics/BlockLength` exclude for `spec/**/*`.
 - Refactored lib to satisfy Metrics cops without inline disables: extracted prompt/JSON/chat helpers from `LlmClient`, pipeline totals/category rules, CLI support modules, `CategoryLabelMatcher`, `StubLlm`, `TransferDetector::CrossBankMatcher`.
 - `bundle exec rubocop`: 0 offenses on 39 files; `bundle exec rspec`: 36 examples green.
+
+## 2026-06-26 - OOP domain refactor (7 phases)
+- Introduced layered architecture: `domain/`, `application/`, `infrastructure/`, `pipeline/steps/`.
+- Replaced hash pipeline with `Movement` + `AnalysisResult`; `CategoryCatalog` unified label/includes matching.
+- LLM moved to `infrastructure/llm/*` with `CategorizationBackend` contract; CLI thinned to Thor → application services.
+- `ConsoleReport` replaces `Reporter` with injectable io; `Pipeline::Builder` assembles five steps; `ReportAggregator` owns totals.
+- Updated `patterns.md`, `hot.md`; `bundle exec rspec`: 45 examples green.

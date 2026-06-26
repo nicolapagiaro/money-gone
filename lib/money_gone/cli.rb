@@ -2,17 +2,13 @@
 
 require 'thor'
 
-require_relative 'cli/bank_spec_parser'
-require_relative 'cli/llm_exit_handler'
-require_relative 'cli/support'
-require_relative 'cli/analyze_command'
-require_relative 'stub_llm'
+require_relative 'application/analyze_service'
+require_relative 'application/chat_service'
+require_relative 'application/exit_code_mapper'
+require_relative 'application/llm_factory'
 
 module MoneyGone
   class CLI < Thor
-    include Cli::Support
-    include Cli::AnalyzeCommand
-
     desc 'analyze BANK_SPEC ...', 'Analyze bank statements (each BANK_SPEC is bank_id:path)'
     long_desc <<~LONG.strip
       Provide one or more bank_id:path pairs, for example:
@@ -39,36 +35,70 @@ module MoneyGone
     option :model, type: :string, desc: 'Override model id from config'
     option :lmstudio_url, type: :string, desc: 'Override LM Studio base URL (e.g. http://127.0.0.1:1234/v1)'
     def analyze(*bank_specs)
-      run_analyze(bank_specs)
+      Application::AnalyzeService.new.call(bank_specs, analyze_options)
     rescue StandardError => e
-      Cli::LlmExitHandler.handle(e)
+      Application::ExitCodeMapper.handle(e)
     end
 
     desc 'chat', 'Interactive chat with the local LM Studio model (OpenAI-compatible /v1/chat/completions)'
     option :model, type: :string, desc: 'Override model id from config'
     option :lmstudio_url, type: :string, desc: 'Override LM Studio base URL'
     def chat
-      run_chat_command
+      run_chat_session
     rescue StandardError => e
       handle_chat_error(e)
     end
 
     private
 
-    def run_chat_command
-      client = build_llm(stub: false, model: option_string(:model), lmstudio_url: option_string(:lmstudio_url))
-      say "Modello: #{client.model}. Digita exit o quit per uscire.", :green
-      run_chat_loop(client)
+    def run_chat_session
+      client = chat_client
+      Application::ChatService.new.run(client, say: method(:say))
+    end
+
+    def chat_client
+      Application::LlmFactory.new.build(
+        stub: false,
+        model: option_string(:model),
+        lmstudio_url: option_string(:lmstudio_url)
+      )
     end
 
     def handle_chat_error(error)
-      Cli::LlmExitHandler.handle(
+      Application::ExitCodeMapper.handle(
         error,
         interrupt_exit: lambda {
           say("\nCiao.", :yellow)
           exit 0
         }
       )
+    end
+
+    def analyze_options
+      {
+        stub: options[:stub],
+        verbose: options[:verbose],
+        category_suggestions: options[:category_suggestions],
+        jobs: option_numeric(:jobs),
+        model: option_string(:model),
+        lmstudio_url: option_string(:lmstudio_url)
+      }
+    end
+
+    def option_string(key)
+      value = options[key]
+      return nil if value.nil?
+
+      text = value.to_s.strip
+      text.empty? ? nil : text
+    end
+
+    def option_numeric(key)
+      value = options[key]
+      return nil if value.nil?
+
+      number = value.to_i
+      number.positive? ? number : nil
     end
   end
 end

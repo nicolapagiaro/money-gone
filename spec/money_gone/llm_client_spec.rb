@@ -54,7 +54,9 @@ RSpec.describe MoneyGone::LlmClient do
       temperature: 0.2,
       response_content: { 'category' => 'Altro', 'confidence' => 0.6 }
     )
-    expect(fake_chat).to receive(:with_schema).with(MoneyGone::LlmPrompts.categorization_schema_fast).and_return(fake_chat)
+    expect(fake_chat).to receive(:with_schema)
+      .with(MoneyGone::Infrastructure::Llm::PromptBuilder.new.categorization_schema_fast)
+      .and_return(fake_chat)
     out = client.categorize(tx, allowed_categories: %w[Spesa Altro], include_suggestions: false)
     expect(out['category']).to eq('Altro')
   end

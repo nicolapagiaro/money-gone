@@ -38,18 +38,18 @@ RSpec.describe 'Pipeline totals' do
 
     root = File.expand_path('../..', __dir__)
     result = Dir.chdir(root) do
-      MoneyGone::Pipeline.new(root: root, llm: fake_llm, loader: loader).run(
+      MoneyGone::Pipeline::Builder.build(root: root, llm: fake_llm, loader: loader).run(
         [{ bank_id: 't', path: tempfile.path }]
       )
     end
 
     expect(result[:rows].size).to eq(2)
-    matched = result[:rows].find { |r| r[:description_clean].to_s.include?('esselunga') }
-    unmatched = result[:rows].find { |r| r[:description_clean] == 'spesa generica' }
-    expect(matched[:category]).to eq('Supermercato e alimentari')
-    expect(matched[:category_source]).to eq('rule_includes')
-    expect(matched[:category_confidence]).to eq(1.0)
-    expect(unmatched[:category]).to eq('Altro')
+    matched = result[:rows].find { |r| r.description_clean.to_s.include?('esselunga') }
+    unmatched = result[:rows].find { |r| r.description_clean == 'spesa generica' }
+    expect(matched.category).to eq('Supermercato e alimentari')
+    expect(matched.category_source).to eq('rule_includes')
+    expect(matched.category_confidence).to eq(1.0)
+    expect(unmatched.category).to eq('Altro')
   ensure
     tempfile&.close!
   end
@@ -229,7 +229,7 @@ RSpec.describe 'Pipeline totals' do
     end
 
     expect(result[:transfers].size).to eq(2)
-    expect(result[:transfers].map { |t| t[:excluded_reason] }.uniq).to eq(['internal_transfer_cross_bank_amount_date'])
+    expect(result[:transfers].map(&:excluded_reason).uniq).to eq(['internal_transfer_cross_bank_amount_date'])
     expect(result[:flow_totals][:entrate]).to be_within(0.01).of(0.0)
     expect(result[:flow_totals][:uscite]).to be_within(0.01).of(-5.0)
     expect(result[:flow_totals][:netto]).to be_within(0.01).of(-5.0)

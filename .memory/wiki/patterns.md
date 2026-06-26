@@ -2,31 +2,65 @@
 
 *Document established coding conventions, file structures, and UI/UX patterns here.*
 
-## Code Organization
-- Namespace-first structure: classes are under `module MoneyGone` and split by responsibility (`Importer`, `Normalizer`, `SchemaMapper`, `TransferDetector`, `Categorizer`, `Pipeline`, `Reporter`).
-- Pipeline orchestration pattern: `Pipeline.run` builds a linear flow (import -> normalize -> transfer detection -> rule pre-categorization -> LLM categorization -> totals/report payload).
-- Thin CLI, explicit exit codes: CLI maps known failure classes to stable process exit codes and keeps heavy logic in library classes.
+## Layered Architecture
+
+```
+lib/money_gone/
+  domain/           # Movement, CategoryCatalog, AnalysisResult, BankSpec, contracts
+  application/      # AnalyzeService, ChatService, LlmFactory, ExitCodeMapper
+  infrastructure/   # LlmClient, StubLlm, ConsoleReport, llm/* collaborators
+  pipeline/         # Step interface, Builder, steps/*
+  cli.rb            # Thin Thor facade → application services
+```
+
+`lib/money_gone.rb` is the **composition root**: requires by layer, no business logic.
+
+## Domain Model
+
+- **`Domain::Movement`**: enrichment lifecycle (`exclude_as_transfer!`, `apply_rule_category!`, `apply_llm_category!`); replaces mutable transaction hashes in the pipeline.
+- **`Domain::AnalysisResult`**: wraps `totals`, `flow_totals`, `transfers`, `suggestions`, `movements`; `rows` aliases `movements` for report compatibility.
+- **`Domain::CategoryCatalog`**: single source for label resolve/fold and `description_category_includes` matching.
+- **`Domain::CategorizationBackend`**: contract implemented by `Infrastructure::LlmClient` and `Infrastructure::StubLlm`.
+- **`Domain::ReportRenderer`**: port; `Infrastructure::ConsoleReport` renders with injectable `io` (default `$stdout`).
+- **`Domain::ReportAggregator`**: category/flow totals and suggestions from `Movement` collections.
+
+## Pipeline (Open/Closed)
+
+`Pipeline::Builder.build(...).run(banks)` assembles five steps:
+
+| Step | Output |
+|------|--------|
+| `Steps::ImportStep` | `[Movement]` from bank specs |
+| `Steps::DetectTransfersStep` | movements with transfer flags |
+| `Steps::RuleCategorizeStep` | rule-based pre-categorization via `CategoryCatalog` |
+| `Steps::LlmCategorizeStep` | LLM categorization via `Categorizer` |
+| `Steps::AggregateStep` | `AnalysisResult` via `ReportAggregator` |
+
+`Pipeline.run` delegates to `Builder` for backward-compatible call sites.
+
+## Application Layer
+
+- **`AnalyzeService`**: parse bank specs → build LLM → run pipeline → `ConsoleReport`.
+- **`ChatService`**: REPL loop with injectable io; extracted from CLI.
+- **`LlmFactory`**: stub/env/config resolution for LLM client.
+- **`ExitCodeMapper`**: sole module that calls `exit N` for CLI error mapping.
+- **`BankSpecParser`**: raises `ParseError`; domain `BankSpec::Invalid` for validation.
+
+## Infrastructure / LLM
+
+- **`Infrastructure::LlmClient`**: facade with injected `Llm::PromptBuilder`, `SessionDriver`, `ResponseParser`.
+- Categorization uses `with_schema` (`json_schema` response format; required by LM Studio).
+- `MoneyGone::LlmClient` / `MoneyGone::StubLlm` are backward-compatible aliases.
 
 ## Data Handling Conventions
-- Canonical transaction hash/struct keys are symbol-based (`booking_date`, `amount_signed`, `description_raw`, `description_clean`).
-- Import-time schema normalization: bank-specific headers are mapped by regex aliases and unicode-cleaned before matching.
-- Defensive normalization: amount parsing strips locale artifacts (NBSP, thousands separators, decimal comma) and preserves signed values.
-- Text folding for matching: accent-insensitive comparisons via unicode NFD + combining mark removal are used in category/rule matching.
 
-## Categorization and Rule Layering
-- Deterministic-before-LLM pattern: `description_category_includes` rules set category first and mark `skip_llm_categorization`.
-- Confidence gate pattern: low-confidence LLM labels are forced to `"Altro"` via configurable threshold.
-- Optional enrichment toggle: `include_category_suggestions` controls whether rationale/suggestion fields are requested (faster default path otherwise).
-- Parallel batch pattern: categorization can run in bounded thread batches (`parallel_jobs`, capped to protect local resources).
-
-## Transfer Detection Patterns
-- Exclusion flag contract: transfer detection sets `excluded_from_spending` + reason/group metadata; downstream totals always respect this flag.
-- Two-stage transfer recognition:
-  1) description-rule matching (keyword/exact),
-  2) cross-bank amount/date pairing with tolerance.
+- Import boundary: `Importer` → `Models::Transaction` → `Movement.from_transaction`.
+- Text folding for matching: unicode NFD + combining mark removal in `CategoryCatalog`.
+- Deterministic-before-LLM: rule step sets `skip_llm_categorization`; confidence gate forces `"Altro"` below threshold.
+- Transfer exclusion: `excluded_from_spending` + reason/group metadata; totals respect `counts_toward_spending?`.
 
 ## Testing Style
-- RSpec unit + integration coverage across each service object and CLI behavior.
-- Fixture-driven input validation for CSV/XLSX ingestion and pipeline outcomes.
-- Offline-safe tests via stubbed categorization (`--stub`, test fixtures, and failure env flags).
 
+- RSpec unit + integration; `spec/support/movement_helpers.rb` for `build_movement`.
+- `console_report_spec.rb` uses `StringIO` instead of global stdout capture.
+- Offline-safe tests via `--stub`, fixtures, and `MONEY_GONE_LLM_FAIL`.
