@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'category_label_matcher'
+
 module MoneyGone
   class Categorizer
     def initialize(
@@ -10,6 +12,7 @@ module MoneyGone
       parallel_jobs: 1
     )
       @categories = categories
+      @label_matcher = CategoryLabelMatcher.new(categories)
       @llm = llm_client
       @confidence_threshold = confidence_threshold
       @include_suggestions = include_suggestions
@@ -25,58 +28,72 @@ module MoneyGone
     private
 
     def sequential_categorize(transactions)
-      transactions.map { |tx| classify_row(tx) }
+      transactions.map { |row| classify_row(row) }
     end
 
     def parallel_categorize(transactions)
       out = transactions.dup
-      work = transactions.each_with_index.reject { |(tx, _)| tx[:excluded_from_spending] }
+      work = transactions.each_with_index.reject { |(row, _idx)| row[:excluded_from_spending] }
 
-      work.each_slice(@parallel_jobs) do |batch|
-        batch.map do |(tx, idx)|
-          Thread.new { [idx, classify_row(tx)] }
-        end.each do |thr|
-          idx, merged = thr.value
-          out[idx] = merged
-        end
-      end
-
+      work.each_slice(@parallel_jobs) { |batch| process_batch(batch, out) }
       out
     end
 
-    def classify_row(tx)
-      return tx if tx[:excluded_from_spending]
-      return tx if tx[:skip_llm_categorization]
+    def process_batch(batch, out)
+      threads = batch.map do |(row, idx)|
+        Thread.new { [idx, classify_row(row)] }
+      end
+      threads.each do |thr|
+        idx, merged = thr.value
+        out[idx] = merged
+      end
+    end
 
-      decision = normalize_decision(
+    def classify_row(row)
+      return row if row[:excluded_from_spending] || row[:skip_llm_categorization]
+
+      decision = llm_decision_for(row)
+      raw_label = decision['category'].to_s.strip
+      resolved = @label_matcher.resolve(raw_label)
+      confidence = parse_confidence(decision['confidence'])
+      suggestion = suggestion_for(decision)
+      category = resolve_category_with_threshold(resolved, confidence)
+
+      build_categorized_row(row, category:, suggestion:, confidence:, raw_label:)
+    end
+
+    def llm_decision_for(row)
+      normalize_decision(
         @llm.categorize(
-          tx,
+          row,
           allowed_categories: @categories,
           include_suggestions: @include_suggestions
         )
       )
-      raw_label = decision["category"].to_s.strip
-      resolved = resolve_category(raw_label)
-      confidence = parse_confidence(decision["confidence"])
-      suggestion = @include_suggestions ? normalize_suggestion(decision["suggested_new_category"]) : nil
+    end
 
-      category =
-        if resolved.nil?
-          "Altro"
-        elsif confidence < @confidence_threshold
-          "Altro"
-        else
-          resolved
-        end
+    def suggestion_for(decision)
+      return nil unless @include_suggestions
 
-      suggestion = cleanup_suggestion(suggestion, category, resolved) if @include_suggestions
+      normalize_suggestion(decision['suggested_new_category'])
+    end
 
-      tx.merge(
+    def resolve_category_with_threshold(resolved, confidence)
+      resolved.nil? || confidence < @confidence_threshold ? 'Altro' : resolved
+    end
+
+    def build_categorized_row(row, category:, suggestion:, confidence:, raw_label:)
+      suggestion = cleanup_suggestion(suggestion, category, resolved_from(raw_label)) if @include_suggestions
+      row.merge(
         category: category,
         suggested_new_category: suggestion,
         category_confidence: confidence,
         category_raw: raw_label
       )
+    end
+
+    def resolved_from(raw_label)
+      @label_matcher.resolve(raw_label)
     end
 
     def normalize_decision(hash)
@@ -93,38 +110,15 @@ module MoneyGone
       0.0
     end
 
-    def resolve_category(label)
-      return nil if label.strip.empty?
-
-      s = label.strip
-      @categories.find { |c| c == s } ||
-        @categories.find { |c| same_label?(c, s) }
-    end
-
-    def same_label?(a, b)
-      normalize_label(a) == normalize_label(b)
-    end
-
-    # Allinea risposte LM senza accenti (es. "caffe" vs "caffè") a config/categories.yml
-    def normalize_label(s)
-      fold_ascii(s).strip.downcase
-    end
-
-    def fold_ascii(str)
-      str.to_s.unicode_normalize(:nfd).gsub(/\p{M}/u, "")
-    end
-
     def normalize_suggestion(value)
-      s = value.to_s.strip
-      s.empty? ? nil : s
+      text = value.to_s.strip
+      text.empty? ? nil : text
     end
 
     def cleanup_suggestion(suggestion, final_category, resolved)
       return nil if suggestion.nil?
-
-      # Non ripetere la stessa etichetta già assegnata
-      return nil if resolved && same_label?(suggestion, resolved)
-      return nil if same_label?(suggestion, final_category)
+      return nil if resolved && @label_matcher.same_label?(suggestion, resolved)
+      return nil if @label_matcher.same_label?(suggestion, final_category)
 
       suggestion
     end

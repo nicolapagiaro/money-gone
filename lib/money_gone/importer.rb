@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 
-require "csv"
-require "roo"
+require 'csv'
+require 'roo'
 
-require_relative "models/transaction"
-require_relative "normalizer"
-require_relative "schema_mapper"
+require_relative 'models/transaction'
+require_relative 'normalizer'
+require_relative 'schema_mapper'
 
 module MoneyGone
   class Importer
+    REQUIRED_FIELDS = %i[booking_date amount_raw description_raw].freeze
+
     def initialize(schema_mapper: SchemaMapper.new, normalizer: Normalizer.new)
       @schema_mapper = schema_mapper
       @normalizer = normalizer
@@ -17,9 +19,9 @@ module MoneyGone
     def import_path(path, bank_id: nil)
       ext = File.extname(path).downcase
       case ext
-      when ".csv"
+      when '.csv'
         import_csv(path, bank_id: bank_id)
-      when ".xlsx", ".xls"
+      when '.xlsx', '.xls'
         import_spreadsheet(path, bank_id: bank_id)
       else
         raise ArgumentError, "unsupported statement format: #{ext.inspect} (#{path})"
@@ -33,13 +35,12 @@ module MoneyGone
     end
 
     def import_spreadsheet(path, bank_id: nil)
-      x = Roo::Spreadsheet.open(path)
-      sheet = x.sheet(0)
-      headers = sheet.row(1).map { |h| SchemaMapper.normalize_header_label(h) }
-      (2..sheet.last_row).map do |i|
-        row_values = sheet.row(i)
+      sheet = Roo::Spreadsheet.open(path).sheet(0)
+      headers = sheet.row(1).map { |header| SchemaMapper.normalize_header_label(header) }
+      (2..sheet.last_row).map do |row_index|
+        row_values = sheet.row(row_index)
         row = headers.zip(row_values).to_h
-        build_transaction(row, bank_id:, index: i - 2)
+        build_transaction(row, bank_id:, index: row_index - 2)
       end
     end
 
@@ -47,17 +48,12 @@ module MoneyGone
 
     def build_transaction(row, bank_id:, index:)
       mapped = @schema_mapper.map_row(row)
-      missing = %i[booking_date amount_raw description_raw].reject do |key|
-        mapped[key] && !mapped[key].to_s.strip.empty?
-      end
-      if missing.any?
-        headers = row.keys.map(&:to_s).join(", ")
-        raise MoneyGone::SchemaMapper::MappingError,
-              "cannot map columns (missing #{missing.join(', ')}); headers were: #{headers}"
-      end
-
+      validate_mapped_fields!(mapped, row)
       normalized = @normalizer.normalize(mapped)
+      new_transaction(normalized, row, bank_id:, index:)
+    end
 
+    def new_transaction(normalized, row, bank_id:, index:)
       Models::Transaction.new(
         id: transaction_id(bank_id, index),
         bank_id: bank_id,
@@ -69,8 +65,19 @@ module MoneyGone
       )
     end
 
+    def validate_mapped_fields!(mapped, row)
+      missing = REQUIRED_FIELDS.reject do |key|
+        mapped[key] && !mapped[key].to_s.strip.empty?
+      end
+      return if missing.empty?
+
+      headers = row.keys.join(', ')
+      raise MoneyGone::SchemaMapper::MappingError,
+            "cannot map columns (missing #{missing.join(', ')}); headers were: #{headers}"
+    end
+
     def transaction_id(bank_id, index)
-      [bank_id, index + 1].compact.join(":")
+      [bank_id, index + 1].compact.join(':')
     end
   end
 end

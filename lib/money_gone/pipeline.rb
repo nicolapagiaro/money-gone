@@ -1,9 +1,13 @@
 # frozen_string_literal: true
 
+require_relative 'stub_llm'
+require_relative 'pipeline/totals_calculator'
+require_relative 'pipeline/category_includes'
+
 module MoneyGone
   class Pipeline
-    def self.run(banks, root: Dir.pwd, llm:, **opts)
-      new(root: root, llm: llm).run(banks, **opts)
+    def self.run(banks, llm:, root: Dir.pwd, **)
+      new(root: root, llm: llm).run(banks, **)
     end
 
     def initialize(root:, llm:, loader: nil)
@@ -14,154 +18,78 @@ module MoneyGone
 
     def run(banks, include_category_suggestions: false, parallel_jobs: nil)
       cfg = @loader.load_all
-      categories = cfg[:categories]
-      importer = Importer.new
-      txs = []
-      banks.each do |b|
-        path = File.expand_path(b[:path], @root)
-        txs.concat(importer.import_path(path, bank_id: b[:bank_id]))
-      end
-
-      rows = txs.map { |t| transaction_to_hash(t) }
-      rules = cfg[:rules] || {}
-      transfer_rules = rules["transfer"] || {}
-      TransferDetector.new.detect(rows, rules: transfer_rules)
-      rows = apply_description_category_includes(rows, categories, rules.dig("categorization", "description_category_includes"))
-      thr = rules.dig("categorization", "confidence_threshold")
-      confidence_threshold = thr.nil? ? 0.45 : thr.to_f
-      confidence_threshold = 0.45 if confidence_threshold <= 0.0
-
-      pj = parallel_jobs.nil? ? rules.dig("categorization", "parallel_jobs")&.to_i : parallel_jobs.to_i
-      pj = 1 if pj.nil? || pj < 1
-      pj = [pj, 16].min
-
-      rows = Categorizer.new(
-        categories: categories,
-        llm_client: @llm,
-        confidence_threshold: confidence_threshold,
-        include_suggestions: include_category_suggestions,
-        parallel_jobs: pj
-      ).categorize(rows)
-
-      {
-        totals: compute_totals(rows),
-        flow_totals: compute_flow_totals(rows),
-        transfers: rows.select { |r| r[:excluded_from_spending] },
-        suggestions: compute_suggestions(rows),
-        rows: rows
-      }
+      rows = import_all(banks)
+      rows = detect_transfers(rows, cfg)
+      rows = apply_category_rules(rows, cfg)
+      rows = categorize_rows(rows, cfg, include_category_suggestions:, parallel_jobs:)
+      build_result(rows)
     end
 
     private
 
-    def transaction_to_hash(t)
+    def import_all(banks)
+      importer = Importer.new
+      transactions = banks.flat_map do |bank|
+        path = File.expand_path(bank[:path], @root)
+        importer.import_path(path, bank_id: bank[:bank_id])
+      end
+      transactions.map { |txn| transaction_to_hash(txn) }
+    end
+
+    def detect_transfers(rows, cfg)
+      transfer_rules = (cfg[:rules] || {})['transfer'] || {}
+      TransferDetector.new.detect(rows, rules: transfer_rules)
+      rows
+    end
+
+    def apply_category_rules(rows, cfg)
+      includes_rules = (cfg[:rules] || {}).dig('categorization', 'description_category_includes')
+      CategoryIncludes.new(cfg[:categories]).apply(rows, includes_rules)
+    end
+
+    def categorize_rows(rows, cfg, include_category_suggestions:, parallel_jobs:)
+      rules = cfg[:rules] || {}
+      Categorizer.new(
+        categories: cfg[:categories],
+        llm_client: @llm,
+        confidence_threshold: categorization_confidence_threshold(rules),
+        include_suggestions: include_category_suggestions,
+        parallel_jobs: categorization_parallel_jobs(rules, parallel_jobs)
+      ).categorize(rows)
+    end
+
+    def build_result(rows)
+      calculator = TotalsCalculator.new
       {
-        id: t.id,
-        bank_id: t.bank_id,
-        booking_date: t.booking_date,
-        amount_signed: t.amount_signed,
-        description_raw: t.description_raw,
-        description_clean: t.description_clean
+        totals: calculator.totals(rows),
+        flow_totals: calculator.flow_totals(rows),
+        transfers: rows.select { |row| row[:excluded_from_spending] },
+        suggestions: calculator.suggestions(rows),
+        rows: rows
       }
     end
 
-    def compute_totals(rows)
-      rows.each_with_object(Hash.new(0.0)) do |t, acc|
-        next if t[:excluded_from_spending]
-
-        cat = t[:category] || "Altro"
-        acc[cat] += t[:amount_signed].to_f
-      end
+    def categorization_confidence_threshold(rules)
+      thr = rules.dig('categorization', 'confidence_threshold')
+      threshold = thr.nil? ? 0.45 : thr.to_f
+      threshold <= 0.0 ? 0.45 : threshold
     end
 
-    # Somme importo con segno contabile (+ entrate / - uscite), solo movimenti conteggiati in report (senza giroconti).
-    def compute_flow_totals(rows)
-      entrate = 0.0
-      uscite = 0.0
-      rows.each do |t|
-        next if t[:excluded_from_spending]
-
-        amt = t[:amount_signed].to_f
-        if amt.positive?
-          entrate += amt
-        elsif amt.negative?
-          uscite += amt
-        end
-      end
-      { entrate: entrate, uscite: uscite, netto: entrate + uscite }
+    def categorization_parallel_jobs(rules, parallel_jobs)
+      jobs = parallel_jobs.nil? ? rules.dig('categorization', 'parallel_jobs')&.to_i : parallel_jobs.to_i
+      jobs = 1 if jobs.nil? || jobs < 1
+      [jobs, 16].min
     end
 
-    def compute_suggestions(rows)
-      rows.each_with_object(Hash.new(0)) do |t, acc|
-        s = t[:suggested_new_category]
-        next if s.nil? || s.to_s.strip.empty?
-
-        acc[s] += 1
-      end
-    end
-
-    def apply_description_category_includes(rows, categories, includes_rules)
-      mapping = normalize_includes_mapping(includes_rules)
-      return rows if mapping.empty?
-
-      rows.map do |row|
-        next row if row[:excluded_from_spending]
-        next row if row[:category]
-
-        text = row[:description_clean].to_s
-        text = row[:description_raw].to_s if text.strip.empty?
-        folded = fold_ascii(text).downcase
-        next row if folded.strip.empty?
-
-        match = mapping.find { |needle, _| folded.include?(needle) }
-        next row unless match
-
-        category = resolve_category(match[1], categories)
-        next row if category.nil?
-
-        row.merge(
-          category: category,
-          category_raw: category,
-          category_confidence: 1.0,
-          category_source: "rule_includes",
-          skip_llm_categorization: true
-        )
-      end
-    end
-
-    def normalize_includes_mapping(raw_mapping)
-      return [] unless raw_mapping.is_a?(Hash)
-
-      raw_mapping.each_with_object([]) do |(pattern, category), acc|
-        needle = fold_ascii(pattern).downcase.strip
-        cat = category.to_s.strip
-        next if needle.empty? || cat.empty?
-
-        acc << [needle, cat]
-      end
-    end
-
-    def resolve_category(label, categories)
-      return nil if label.to_s.strip.empty?
-
-      target = label.to_s.strip
-      categories.find { |c| c == target } ||
-        categories.find { |c| fold_ascii(c).downcase == fold_ascii(target).downcase }
-    end
-
-    def fold_ascii(str)
-      str.to_s.unicode_normalize(:nfd).gsub(/\p{M}/u, "")
-    end
-
-    # Minimal stand-in so `analyze` works without a running LM Studio (tests / local dry run).
-    class StubLlm
-      def categorize(_tx, allowed_categories: [], **_)
-        label =
-          allowed_categories.find { |c| c.match?(/supermercato/i) } ||
-          allowed_categories.reject { |c| c.to_s.strip.downcase == "altro" }.first ||
-          "Altro"
-        { "category" => label, "confidence" => 0.95, "suggested_new_category" => nil }
-      end
+    def transaction_to_hash(txn)
+      {
+        id: txn.id,
+        bank_id: txn.bank_id,
+        booking_date: txn.booking_date,
+        amount_signed: txn.amount_signed,
+        description_raw: txn.description_raw,
+        description_clean: txn.description_clean
+      }
     end
   end
 end

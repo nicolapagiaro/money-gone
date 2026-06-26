@@ -28,3 +28,8 @@
 
 ## 2026-06-17 12:45 UTC+2 - LM Studio json_schema fix
 - Switched categorization from `response_format: json_object` to `with_schema` because LM Studio only accepts `json_schema` or `text`.
+
+## 2026-06-26 - RuboCop cleanup (83 → 0 offenses)
+- Added `.rubocop.yml` with `rubocop-performance`, `Metrics/BlockLength` exclude for `spec/**/*`.
+- Refactored lib to satisfy Metrics cops without inline disables: extracted prompt/JSON/chat helpers from `LlmClient`, pipeline totals/category rules, CLI support modules, `CategoryLabelMatcher`, `StubLlm`, `TransferDetector::CrossBankMatcher`.
+- `bundle exec rubocop`: 0 offenses on 39 files; `bundle exec rspec`: 36 examples green.
